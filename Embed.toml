@@ -1,2 +1,5 @@
 [default.general]
 chip = "STM32F411CEUx"
+
+[default.rtt]
+enabled = true
