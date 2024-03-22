@@ -1,5 +1,5 @@
 [package]
-name = "stm32f411-edge-counter"
+name = "stm32-rtic"
 version = "0.1.0"
 authors = ["FlareFlo"]
 edition = "2021"

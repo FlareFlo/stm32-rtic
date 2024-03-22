@@ -1,9 +1,20 @@
 #![deny(unsafe_code)]
-#![deny(warnings)]
 #![no_main]
 #![no_std]
 
 use panic_halt as _;
+
+mod pins {
+    use stm32f4xx_hal::gpio::{Output, PA8, PA9, PB12, PB13, PB14, PB15, PushPull};
+
+    pub type Blue55 = PB12<Output<PushPull>>;
+    pub type Blue70 = PB13<Output<PushPull>>;
+    pub type Blue85= PB14<Output<PushPull>>;
+
+    pub  type Hz1000 = PB15<Output<PushPull>>;
+    pub type Hz500 = PA8<Output<PushPull>>;
+    pub type Command = PA9<Output<PushPull>>;
+}
 
 #[rtic::app(device = stm32f4xx_hal::pac, peripherals = true)]
 mod app {
@@ -23,6 +34,16 @@ mod app {
     struct Shared {
         delayval: u32,
         rtc: Rtc,
+        leds: Leds,
+    }
+
+    pub struct Leds {
+        blue_55: crate::pins::Blue55,
+        blue_70: crate::pins::Blue70,
+        blue_85: crate::pins::Blue85,
+        hz_1000: crate::pins::Hz1000,
+        hz_500: crate::pins::Hz500,
+        command: crate::pins::Command,
     }
 
     // Local resources to specific tasks (cannot be shared)
@@ -66,6 +87,8 @@ mod app {
         // 3) Create delay handle
         let delay = dp.TIM1.delay_ms(&clocks);
 
+        let gpiob = dp.GPIOB.split();
+
         // Configure the LED pin as a push pull ouput and obtain handle
         // On the Blackpill STM32F411CEU6 there is an on-board LED connected to pin PC13
         // 1) Promote the GPIOC PAC struct
@@ -92,10 +115,17 @@ mod app {
         // 4) Enable gpio interrupt for button
         button.enable_interrupt(&mut dp.EXTI);
 
+        let blue_55 = gpiob.pb12.into_push_pull_output();
+        let blue_70 = gpiob.pb13.into_push_pull_output();
+        let blue_85 = gpiob.pb14.into_push_pull_output();
+        let hz_1000 = gpiob.pb15.into_push_pull_output();
+        let hz_500 = gpioa.pa8.into_push_pull_output();
+        let command = gpioa.pa9.into_push_pull_output();
+
 
         (
             // Initialization of shared resources
-            Shared { delayval: 2000_u32, rtc},
+            Shared { delayval: 1000_u32, rtc, leds: Leds { blue_55, blue_70, blue_85, hz_1000, hz_500, command} },
             // Initialization of task local resources
             Local { button, led, delay},
         )
@@ -103,17 +133,34 @@ mod app {
     }
 
     // Background task, runs whenever no other tasks are running
-    #[idle(local = [led, delay], shared = [delayval])]
+    #[idle(local = [led, delay], shared = [delayval, leds])]
     fn idle(mut ctx: idle::Context) -> ! {
         let led = ctx.local.led;
         let delay = ctx.local.delay;
+        let mut leds = ctx.shared.leds;
         loop {
             // Turn On LED
             led.set_high();
+            leds.lock(|v| {
+                v.blue_55.set_high();
+                v.blue_70.set_high();
+                v.blue_85.set_high();
+                v.hz_1000.set_high();
+                v.hz_500.set_high();
+                // v.command.set_high();
+            });
             // Obtain shared delay variable and delay
             delay.delay_ms(ctx.shared.delayval.lock(|del| *del));
             // Turn off LED
             led.set_low();
+            leds.lock(|v| {
+                v.blue_55.set_low();
+                v.blue_70.set_low();
+                v.blue_85.set_low();
+                v.hz_1000.set_low();
+                v.hz_500.set_low();
+                // v.command.set_low();
+            });
             // Obtain shared delay variable and delay
             delay.delay_ms(ctx.shared.delayval.lock(|del| *del));
         }
@@ -152,40 +199,3 @@ mod app {
         // Your RTC wakeup interrupt handling code here
     }
 }
-
-/*
-mod pins {
-    use stm32f4xx_hal::gpio::{Output, PA8, PA9, PB12, PB13, PB14, PB15};
-
-    pub type Blue55 = PB12<Output>;
-    pub type Blue70 = PB13<Output>;
-    pub type Blue85= PB14<Output>;
-
-    pub  type Hz1000 = PB15<Output>;
-    pub type Hz500 = PA8<Output>;
-    pub type Command = PA9<Output>;
-}
-
- #[shared]
-    struct Shared {
-        blue_55: crate::pins::Blue55,
-        blue_70: crate::pins::Blue70,
-        blue_85: crate::pins::Blue85,
-        hz_1000: crate::pins::Hz1000,
-        hz_500: crate::pins::Hz500,
-        command: crate::pins::Command,
-    }
-
- let gpioa = ctx.device.GPIOA.split();
-        let gpiob = ctx.device.GPIOB.split();
-        let gpioc = ctx.device.GPIOC.split();
-
-        let led = gpioc.pc13.into_push_pull_output();
-
-        let blue_55 = gpiob.pb12.into_push_pull_output();
-        let blue_70 = gpiob.pb13.into_push_pull_output();
-        let blue_85 = gpiob.pb14.into_push_pull_output();
-        let hz_1000 = gpiob.pb15.into_push_pull_output();
-        let hz_500 = gpioa.pa8.into_push_pull_output();
-        let command = gpioa.pa9.into_push_pull_output();
- */
