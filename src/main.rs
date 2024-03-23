@@ -2,6 +2,10 @@
 #![no_main]
 #![no_std]
 
+pub mod led_state;
+pub mod pzb;
+pub mod pzb_state;
+
 use panic_halt as _;
 
 mod pins {
@@ -18,7 +22,7 @@ mod pins {
 
 #[rtic::app(device = stm32f4xx_hal::pac, peripherals = true)]
 mod app {
-
+	use defmt::warn;
 	use defmt_rtt as _;
 	use stm32f4xx_hal::{
 		gpio::{self, Edge, Input, Output, PushPull},
@@ -143,6 +147,7 @@ mod app {
 		let delay = ctx.local.delay;
 		let mut leds = ctx.shared.leds;
 		loop {
+			warn!("on cuh");
 			// Turn On LED
 			led.set_high();
 			leds.lock(|v| {
@@ -170,33 +175,16 @@ mod app {
 		}
 	}
 
-	#[task(binds = EXTI0, local = [button], shared=[delayval, rtc])]
+	#[task(binds = EXTI0, local = [button])]
 	fn gpio_interrupt_handler(mut ctx: gpio_interrupt_handler::Context) {
-		ctx.shared.delayval.lock(|del| {
-			*del = *del - 100_u32;
-			if *del < 200_u32 {
-				*del = 2000_u32;
-			}
-			*del
-		});
-
-		ctx.shared.rtc.lock(|rtc| {
-			let current_time = rtc.get_datetime();
-
-			defmt::info!("CURRENT TIME {:?}", current_time.as_hms());
-			rtc.disable_wakeup();
-		});
 
 		ctx.local.button.clear_interrupt_pending_bit();
 	}
 
 	#[task(binds = RTC_WKUP, shared = [rtc])]
 	fn rtc_wakeup(mut ctx: rtc_wakeup::Context) {
-		defmt::warn!("RTC INTERRUPT!!!!");
 		ctx.shared.rtc.lock(|rtc| {
-			let current_time = rtc.get_datetime();
 			rtc.clear_interrupt(Event::Wakeup);
-			defmt::info!("Current time {:?}", current_time.as_hms());
 		});
 		// Your RTC wakeup interrupt handling code here
 	}
