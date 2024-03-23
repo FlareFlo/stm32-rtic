@@ -1,3 +1,4 @@
+use core::pin::Pin;
 use stm32f4xx_hal::gpio::PinState;
 
 use crate::{app::Leds, impl_led_blinking, impl_led_state_builder, impl_led_static};
@@ -41,6 +42,18 @@ impl PzbLedState {
 		}
 	}
 
+	pub const fn all_static() -> Self {
+		Self {
+			b85:     LedState::Static,
+			b70:     LedState::Static,
+			b55:     LedState::Static,
+			hz1000:  LedState::Static,
+			hz500:   LedState::Static,
+			command: LedState::Static,
+		}
+	}
+
+
 	pub fn set_leds(self, leds: &mut Leds, light_cycle: bool) {
 		#[macro_export]
 		macro_rules! impl_led_set {
@@ -73,18 +86,20 @@ mod macros {
 	#[macro_export]
 	macro_rules! impl_led_static {
 		($fn_name:ident, $field:ident) => {
-			pub const fn $fn_name(mut self) -> Self {
-				self.$field = LedState::Static;
-				self
+			pub const fn $fn_name(self) -> Self {
+				let mut new = self;
+				new.$field = LedState::Static;
+				new
 			}
 		};
 	}
 	#[macro_export]
 	macro_rules! impl_led_blinking {
 		($fn_name:ident, $field:ident) => {
-			pub const fn $fn_name(mut self) -> Self {
-				self.$field = LedState::Blinking;
-				self
+			pub const fn $fn_name(self) -> Self {
+				let mut new = self;
+				new.$field = LedState::Blinking;
+				new
 			}
 		};
 	}

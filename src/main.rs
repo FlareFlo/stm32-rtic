@@ -34,11 +34,7 @@ mod app {
 		timer,
 	};
 
-	use crate::{
-		led_state::PzbLedState,
-		pzb::PzbCategory,
-		pzb_state::{PzbState, PZB_STATE_COUNT},
-	};
+	use crate::{led_state::PzbLedState, pzb::PzbCategory, pzb_state::PzbState};
 
 	// Resources shared between tasks
 	#[shared]
@@ -47,16 +43,15 @@ mod app {
 		rtc:      Rtc,
 		leds:     Leds,
 
-		pzb_state: [PzbState; PZB_STATE_COUNT],
-		pzb_index: usize,
+		pzb_state: PzbState,
 	}
 
 	pub struct Leds {
 		pub b55:     crate::pins::Blue55,
 		pub b70:     crate::pins::Blue70,
 		pub b85:     crate::pins::Blue85,
-		pub hz1000: crate::pins::Hz1000,
-		pub hz500:  crate::pins::Hz500,
+		pub hz1000:  crate::pins::Hz1000,
+		pub hz500:   crate::pins::Hz500,
 		pub command: crate::pins::Command,
 	}
 
@@ -90,10 +85,6 @@ mod app {
 		let _ = rtc.set_hours(22);
 		let _ = rtc.set_minutes(57);
 		let _ = rtc.set_seconds(00);
-
-		// Start listening to WAKE UP INTERRUPTS
-		rtc.enable_wakeup(10.secs());
-		rtc.listen(&mut dp.EXTI, Event::Wakeup);
 
 		// 3) Create delay handle
 		let delay = dp.TIM1.delay_ms(&clocks);
@@ -145,8 +136,7 @@ mod app {
 					hz500,
 					command,
 				},
-				pzb_state: PzbState::states(),
-				pzb_index: 0,
+				pzb_state: PzbState::Free,
 			},
 			// Initialization of task local resources
 			Local { button, led, delay },
@@ -154,23 +144,19 @@ mod app {
 	}
 
 	// Background task, runs whenever no other tasks are running
-	#[idle(local = [led, delay], shared = [delayval, leds, pzb_state, pzb_index])]
+	#[idle(local = [led, delay], shared = [delayval, leds, pzb_state])]
 	fn idle(mut ctx: idle::Context) -> ! {
 		let led = ctx.local.led;
 		let delay = ctx.local.delay;
 		let mut leds = ctx.shared.leds;
 		let mut pzb_state = ctx.shared.pzb_state;
-		let mut pzb_index = ctx.shared.pzb_index;
 		loop {
 			// Turn On LED
 			led.set_high();
 			leds.lock(|v| {
 				pzb_state.lock(|x| {
-					pzb_index.lock(|y| {
-						let state = x[*y];
-						let pzb_led = state.enabled(PzbCategory::O);
-						pzb_led.set_leds(v, true);
-					})
+					let pzb_led = x.enabled(PzbCategory::O);
+					pzb_led.set_leds(v, true);
 				})
 			});
 			// Obtain shared delay variable and delay
@@ -179,33 +165,21 @@ mod app {
 			led.set_low();
 			leds.lock(|v| {
 				pzb_state.lock(|x| {
-					pzb_index.lock(|y| {
-						let state = x[*y];
-						let pzb_led = state.enabled(PzbCategory::O);
-						pzb_led.set_leds(v, false);
-					})
+					let pzb_led = x.enabled(PzbCategory::O);
+					pzb_led.set_leds(v, false);
 				})
 			});
+
 			// Obtain shared delay variable and delay
 			delay.delay_ms(ctx.shared.delayval.lock(|del| *del));
 		}
 	}
 
-	#[task(binds = EXTI0, local = [button], shared = [pzb_index])]
+	#[task(binds = EXTI0, local = [button], shared = [pzb_state])]
 	fn gpio_interrupt_handler(mut ctx: gpio_interrupt_handler::Context) {
 		ctx.local.button.clear_interrupt_pending_bit();
-		ctx.shared.pzb_index.lock(|state| {
-			*state += 1;
-			*state = *state % PZB_STATE_COUNT;
-			warn!("set level");
+		ctx.shared.pzb_state.lock(|state| {
+			*state = state.next();
 		});
-	}
-
-	#[task(binds = RTC_WKUP, shared = [rtc])]
-	fn rtc_wakeup(mut ctx: rtc_wakeup::Context) {
-		ctx.shared.rtc.lock(|rtc| {
-			rtc.clear_interrupt(Event::Wakeup);
-		});
-		// Your RTC wakeup interrupt handling code here
 	}
 }

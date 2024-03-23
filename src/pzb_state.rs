@@ -1,7 +1,5 @@
 use crate::{led_state::PzbLedState, pzb::PzbCategory};
 
-pub const PZB_STATE_COUNT: usize = 4;
-
 #[derive(Copy, Clone)]
 pub enum PzbState {
 	Free,
@@ -19,18 +17,19 @@ impl PzbState {
 				PzbCategory::M => led.b70(),
 				PzbCategory::U => led.b55(),
 			},
-			PzbState::Restricted1000hz => led.hz1000(),
-			PzbState::Restricted500hz => led.hz500(),
+			PzbState::Restricted1000hz => led.hz1000().b85(),
+			PzbState::Restricted500hz => led.hz500().b85(),
 			PzbState::ForcedStop => led.hz1000_blink().hz500_blink(),
 		}
 	}
 
-	pub fn states() -> [PzbState; PZB_STATE_COUNT] {
-		[
-			PzbState::Free,
-			PzbState::Restricted1000hz,
-			PzbState::Restricted500hz,
-			PzbState::ForcedStop,
-		]
+	// Not proud but it works alright
+	pub fn next(self) -> Self {
+		match self {
+			PzbState::Free => Self::Restricted1000hz,
+			PzbState::Restricted1000hz => Self::Restricted500hz,
+			PzbState::Restricted500hz => Self::ForcedStop,
+			PzbState::ForcedStop => Self::Free,
+		}
 	}
 }
