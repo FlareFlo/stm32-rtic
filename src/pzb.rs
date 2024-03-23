@@ -1,3 +1,5 @@
+use crate::led_state::PzbLedState;
+
 pub const RESTRICTED_SPEED: u16 = 45; // KMH - Speed at which the train can travel when restricted
 pub const LOWER_RESTRICTED_SPEED: u16 = 10; // KMH
 
@@ -22,6 +24,22 @@ impl PzbCategory {
 				top_speed:         105,
 				deceleration_time: 38,
 			},
+		}
+	}
+
+	pub const fn set_led(self, leds: PzbLedState, blinking: bool) -> PzbLedState{
+		if blinking {
+			match self {
+				PzbCategory::O => {leds.b85_blink(false)}
+				PzbCategory::M => {leds.b70_blink(false)}
+				PzbCategory::U => {leds.b55_blink(false)}
+			}
+		} else {
+			match self {
+				PzbCategory::O => {leds.b85()}
+				PzbCategory::M => {leds.b70()}
+				PzbCategory::U => {leds.b55()}
+			}
 		}
 	}
 }

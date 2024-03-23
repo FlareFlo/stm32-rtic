@@ -12,14 +12,10 @@ impl PzbState {
 	pub const fn enabled(self, state: PzbCategory) -> PzbLedState {
 		let led = PzbLedState::off();
 		match self {
-			PzbState::Free => match state {
-				PzbCategory::O => led.b85(),
-				PzbCategory::M => led.b70(),
-				PzbCategory::U => led.b55(),
-			},
-			PzbState::Restricted1000hz => led.hz1000().b85(),
-			PzbState::Restricted500hz => led.hz500().b85(),
-			PzbState::ForcedStop => led.hz1000_blink().hz500_blink(),
+			PzbState::Free => {state.set_led(led, false)},
+			PzbState::Restricted1000hz => {state.set_led(led, true).hz1000_blink(true)},
+			PzbState::Restricted500hz => {state.set_led(led, true).hz500_blink(true)},
+			PzbState::ForcedStop => led.hz1000_blink(false).hz500_blink(false),
 		}
 	}
 

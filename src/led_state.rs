@@ -7,7 +7,7 @@ use crate::{app::Leds, impl_led_blinking, impl_led_state_builder, impl_led_stati
 pub enum LedState {
 	Off,
 	Static,
-	Blinking,
+	Blinking {alternate: bool},
 }
 
 impl LedState {
@@ -15,7 +15,7 @@ impl LedState {
 		match self {
 			LedState::Off => false,
 			LedState::Static => true,
-			LedState::Blinking => cycle,
+			LedState::Blinking{alternate} => if !alternate { cycle } else { !cycle },
 		}
 	}
 }
@@ -96,9 +96,9 @@ mod macros {
 	#[macro_export]
 	macro_rules! impl_led_blinking {
 		($fn_name:ident, $field:ident) => {
-			pub const fn $fn_name(self) -> Self {
+			pub const fn $fn_name(self, alt: bool) -> Self {
 				let mut new = self;
-				new.$field = LedState::Blinking;
+				new.$field = LedState::Blinking{alternate: alt};
 				new
 			}
 		};
