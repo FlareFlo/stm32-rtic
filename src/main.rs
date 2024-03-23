@@ -25,6 +25,7 @@ mod pins {
 mod app {
 	use defmt::warn;
 	use defmt_rtt as _;
+	use rtic::Mutex;
 	use stm32f4xx_hal::{
 		gpio::{self, Edge, Input, Output, PushPull},
 		pac::TIM1,
@@ -33,21 +34,30 @@ mod app {
 		timer,
 	};
 
+	use crate::{
+		led_state::PzbLedState,
+		pzb::PzbCategory,
+		pzb_state::{PzbState, PZB_STATE_COUNT},
+	};
+
 	// Resources shared between tasks
 	#[shared]
 	struct Shared {
 		delayval: u32,
 		rtc:      Rtc,
 		leds:     Leds,
+
+		pzb_state: [PzbState; PZB_STATE_COUNT],
+		pzb_index: usize,
 	}
 
 	pub struct Leds {
-		blue_55: crate::pins::Blue55,
-		blue_70: crate::pins::Blue70,
-		blue_85: crate::pins::Blue85,
-		hz_1000: crate::pins::Hz1000,
-		hz_500:  crate::pins::Hz500,
-		command: crate::pins::Command,
+		pub b55:     crate::pins::Blue55,
+		pub b70:     crate::pins::Blue70,
+		pub b85:     crate::pins::Blue85,
+		pub hz1000: crate::pins::Hz1000,
+		pub hz500:  crate::pins::Hz500,
+		pub command: crate::pins::Command,
 	}
 
 	// Local resources to specific tasks (cannot be shared)
@@ -115,26 +125,28 @@ mod app {
 		// 4) Enable gpio interrupt for button
 		button.enable_interrupt(&mut dp.EXTI);
 
-		let blue_55 = gpiob.pb12.into_push_pull_output();
-		let blue_70 = gpiob.pb13.into_push_pull_output();
-		let blue_85 = gpiob.pb14.into_push_pull_output();
-		let hz_1000 = gpiob.pb15.into_push_pull_output();
-		let hz_500 = gpioa.pa8.into_push_pull_output();
+		let b55 = gpiob.pb12.into_push_pull_output();
+		let b70 = gpiob.pb13.into_push_pull_output();
+		let b85 = gpiob.pb14.into_push_pull_output();
+		let hz1000 = gpiob.pb15.into_push_pull_output();
+		let hz500 = gpioa.pa8.into_push_pull_output();
 		let command = gpioa.pa9.into_push_pull_output();
 
 		(
 			// Initialization of shared resources
 			Shared {
-				delayval: 1000_u32,
+				delayval: 500_u32,
 				rtc,
 				leds: Leds {
-					blue_55,
-					blue_70,
-					blue_85,
-					hz_1000,
-					hz_500,
+					b55,
+					b70,
+					b85,
+					hz1000,
+					hz500,
 					command,
 				},
+				pzb_state: PzbState::states(),
+				pzb_index: 0,
 			},
 			// Initialization of task local resources
 			Local { button, led, delay },
@@ -142,44 +154,51 @@ mod app {
 	}
 
 	// Background task, runs whenever no other tasks are running
-	#[idle(local = [led, delay], shared = [delayval, leds])]
+	#[idle(local = [led, delay], shared = [delayval, leds, pzb_state, pzb_index])]
 	fn idle(mut ctx: idle::Context) -> ! {
 		let led = ctx.local.led;
 		let delay = ctx.local.delay;
 		let mut leds = ctx.shared.leds;
+		let mut pzb_state = ctx.shared.pzb_state;
+		let mut pzb_index = ctx.shared.pzb_index;
 		loop {
-			warn!("on cuh");
 			// Turn On LED
 			led.set_high();
 			leds.lock(|v| {
-				v.blue_55.set_high();
-				v.blue_70.set_high();
-				v.blue_85.set_high();
-				v.hz_1000.set_high();
-				v.hz_500.set_high();
-				// v.command.set_high();
+				pzb_state.lock(|x| {
+					pzb_index.lock(|y| {
+						let state = x[*y];
+						let pzb_led = state.enabled(PzbCategory::O);
+						pzb_led.set_leds(v, true);
+					})
+				})
 			});
 			// Obtain shared delay variable and delay
 			delay.delay_ms(ctx.shared.delayval.lock(|del| *del));
 			// Turn off LED
 			led.set_low();
 			leds.lock(|v| {
-				v.blue_55.set_low();
-				v.blue_70.set_low();
-				v.blue_85.set_low();
-				v.hz_1000.set_low();
-				v.hz_500.set_low();
-				// v.command.set_low();
+				pzb_state.lock(|x| {
+					pzb_index.lock(|y| {
+						let state = x[*y];
+						let pzb_led = state.enabled(PzbCategory::O);
+						pzb_led.set_leds(v, false);
+					})
+				})
 			});
 			// Obtain shared delay variable and delay
 			delay.delay_ms(ctx.shared.delayval.lock(|del| *del));
 		}
 	}
 
-	#[task(binds = EXTI0, local = [button])]
+	#[task(binds = EXTI0, local = [button], shared = [pzb_index])]
 	fn gpio_interrupt_handler(mut ctx: gpio_interrupt_handler::Context) {
-
 		ctx.local.button.clear_interrupt_pending_bit();
+		ctx.shared.pzb_index.lock(|state| {
+			*state += 1;
+			*state = *state % PZB_STATE_COUNT;
+			warn!("set level");
+		});
 	}
 
 	#[task(binds = RTC_WKUP, shared = [rtc])]
