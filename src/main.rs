@@ -1,6 +1,7 @@
 #![deny(unsafe_code)]
 #![no_main]
 #![no_std]
+#![allow(unused)] // TODO: Remove when done prototyping (never :)
 
 pub mod led_state;
 pub mod pzb;
