@@ -1,4 +1,5 @@
 use core::pin::Pin;
+
 use stm32f4xx_hal::gpio::PinState;
 
 use crate::{app::Leds, impl_led_blinking, impl_led_state_builder, impl_led_static};
@@ -7,7 +8,7 @@ use crate::{app::Leds, impl_led_blinking, impl_led_state_builder, impl_led_stati
 pub enum LedState {
 	Off,
 	Static,
-	Blinking {alternate: bool},
+	Blinking { alternate: bool },
 }
 
 impl LedState {
@@ -15,7 +16,13 @@ impl LedState {
 		match self {
 			LedState::Off => false,
 			LedState::Static => true,
-			LedState::Blinking{alternate} => if !alternate { cycle } else { !cycle },
+			LedState::Blinking { alternate } => {
+				if !alternate {
+					cycle
+				} else {
+					!cycle
+				}
+			},
 		}
 	}
 }
@@ -52,7 +59,6 @@ impl PzbLedState {
 			command: LedState::Static,
 		}
 	}
-
 
 	pub fn set_leds(self, leds: &mut Leds, light_cycle: bool) {
 		#[macro_export]
@@ -98,7 +104,7 @@ mod macros {
 		($fn_name:ident, $field:ident) => {
 			pub const fn $fn_name(self, alt: bool) -> Self {
 				let mut new = self;
-				new.$field = LedState::Blinking{alternate: alt};
+				new.$field = LedState::Blinking { alternate: alt };
 				new
 			}
 		};

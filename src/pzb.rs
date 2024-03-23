@@ -27,18 +27,18 @@ impl PzbCategory {
 		}
 	}
 
-	pub const fn set_led(self, leds: PzbLedState, blinking: bool) -> PzbLedState{
+	pub const fn set_led(self, leds: PzbLedState, blinking: bool) -> PzbLedState {
 		if blinking {
 			match self {
-				PzbCategory::O => {leds.b85_blink(false)}
-				PzbCategory::M => {leds.b70_blink(false)}
-				PzbCategory::U => {leds.b55_blink(false)}
+				PzbCategory::O => leds.b85_blink(false),
+				PzbCategory::M => leds.b70_blink(false),
+				PzbCategory::U => leds.b55_blink(false),
 			}
 		} else {
 			match self {
-				PzbCategory::O => {leds.b85()}
-				PzbCategory::M => {leds.b70()}
-				PzbCategory::U => {leds.b55()}
+				PzbCategory::O => leds.b85(),
+				PzbCategory::M => leds.b70(),
+				PzbCategory::U => leds.b55(),
 			}
 		}
 	}
