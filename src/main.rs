@@ -152,6 +152,7 @@ mod app {
 		loop {
 			led.set_high();
 
+			// Set non-alternating PZB state
 			shared!(
 				ctx,
 				|leds, pzb_state| {
@@ -161,6 +162,8 @@ mod app {
 				leds,
 				pzb_state
 			);
+
+			// Sleep for full PZB cycle
 			shared!(
 				ctx,
 				|delay, delayval| delay.delay_ms(*delayval),
@@ -168,6 +171,8 @@ mod app {
 				delayval
 			);
 			led.set_low();
+
+			// Set alternating PZB state
 			shared!(
 				ctx,
 				|leds, pzb_state| {
@@ -178,6 +183,7 @@ mod app {
 				pzb_state
 			);
 
+			// Sleep for full PZB cycle
 			shared!(
 				ctx,
 				|delay, delayval| delay.delay_ms(*delayval),
