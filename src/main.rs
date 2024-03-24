@@ -28,6 +28,7 @@ mod app {
 	use defmt::export::panic;
 	use defmt_rtt as _;
 	use rtic::Mutex;
+	use rtic::mutex_prelude::TupleExt02;
 	use stm32f4xx_hal::{
 		gpio::{self, Edge, Input, Output, PushPull},
 		pac::TIM1,
@@ -36,7 +37,7 @@ mod app {
 		timer,
 	};
 
-	use crate::{led_state::PzbLedState, pzb::PzbCategory, pzb_state::PzbState};
+	use crate::{led_state::PzbLedState, pzb::PzbCategory, pzb_state::PzbState, shared};
 
 	// Resources shared between tasks
 	#[shared]
@@ -44,6 +45,7 @@ mod app {
 		delayval: u32,
 		rtc:      Rtc,
 		leds:     Leds,
+		delay:  timer::DelayMs<TIM1>,
 
 		pzb_state: PzbState,
 	}
@@ -62,7 +64,6 @@ mod app {
 	struct Local {
 		button: gpio::PA0<Input>,
 		led:    gpio::PC13<Output<PushPull>>,
-		delay:  timer::DelayMs<TIM1>,
 	}
 
 	#[init]
@@ -139,17 +140,17 @@ mod app {
 					command,
 				},
 				pzb_state: PzbState::Free,
+				delay,
 			},
 			// Initialization of task local resources
-			Local { button, led, delay },
+			Local { button, led },
 		)
 	}
 
 	// Background task, runs whenever no other tasks are running
-	#[idle(local = [led, delay], shared = [delayval, leds, pzb_state])]
+	#[idle(local = [led], shared = [delayval, leds, pzb_state, delay])]
 	fn idle(mut ctx: idle::Context) -> ! {
 		let led = ctx.local.led;
-		let delay = ctx.local.delay;
 		let mut leds = ctx.shared.leds;
 		let mut pzb_state = ctx.shared.pzb_state;
 		loop {
@@ -162,7 +163,7 @@ mod app {
 				})
 			});
 			// Obtain shared delay variable and delay
-			delay.delay_ms(ctx.shared.delayval.lock(|del| *del));
+			shared!(ctx, |delay, delayval| delay.delay_ms(*delayval), delay, delayval);
 			// Turn off LED
 			led.set_low();
 			leds.lock(|v| {
@@ -173,16 +174,25 @@ mod app {
 			});
 
 			// Obtain shared delay variable and delay
-			delay.delay_ms(ctx.shared.delayval.lock(|del| *del));
+			shared!(ctx, |delay, delayval| delay.delay_ms(*delayval), delay, delayval);
 		}
 	}
 
-	#[task(binds = EXTI0, local = [button], shared = [pzb_state])]
+	#[task(binds = EXTI0, local = [button], shared = [pzb_state, delay])]
 	fn gpio_interrupt_handler(mut ctx: gpio_interrupt_handler::Context) {
-		warn!("TEST PRINT");
 		ctx.local.button.clear_interrupt_pending_bit();
 		ctx.shared.pzb_state.lock(|state| {
 			*state = state.next();
 		});
 	}
+}
+
+#[macro_export]
+macro_rules! shared {
+    ($ctx:ident, $lock:expr, $( $lockable:ident ),* ) => {
+		($(
+		&mut $ctx.shared.$lockable
+		),*)
+		.lock($lock)
+	};
 }
