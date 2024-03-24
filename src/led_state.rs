@@ -79,7 +79,7 @@ impl_led_state_builder!((b85 b85_blink), (b70 b70_blink), (b55 b55_blink), (hz10
 mod macros {
 	#[macro_export]
 	macro_rules! impl_led_state_builder {
-    ( $( ( $field:ident $fn_name:ident )),* ) => {
+    ( $( ( $field:ident $fn_name:ident ) ),* ) => {
 		impl PzbLedState {
 			$(
 				impl_led_static!($field, $field);
