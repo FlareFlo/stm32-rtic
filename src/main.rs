@@ -24,11 +24,9 @@ mod pins {
 #[rtic::app(device = stm32f4xx_hal::pac, peripherals = true)]
 mod app {
 	use cortex_m::asm::delay;
-	use defmt::{error, warn};
-	use defmt::export::panic;
+	use defmt::{error, export::panic, warn};
 	use defmt_rtt as _;
-	use rtic::Mutex;
-	use rtic::mutex_prelude::TupleExt02;
+	use rtic::{mutex_prelude::TupleExt02, Mutex};
 	use stm32f4xx_hal::{
 		gpio::{self, Edge, Input, Output, PushPull},
 		pac::TIM1,
@@ -45,7 +43,7 @@ mod app {
 		delayval: u32,
 		rtc:      Rtc,
 		leds:     Leds,
-		delay:  timer::DelayMs<TIM1>,
+		delay:    timer::DelayMs<TIM1>,
 
 		pzb_state: PzbState,
 	}
@@ -151,30 +149,41 @@ mod app {
 	#[idle(local = [led], shared = [delayval, leds, pzb_state, delay])]
 	fn idle(mut ctx: idle::Context) -> ! {
 		let led = ctx.local.led;
-		let mut leds = ctx.shared.leds;
-		let mut pzb_state = ctx.shared.pzb_state;
 		loop {
-			// Turn On LED
 			led.set_high();
-			leds.lock(|v| {
-				pzb_state.lock(|x| {
-					let pzb_led = x.enabled(PzbCategory::O);
-					pzb_led.set_leds(v, true);
-				})
-			});
-			// Obtain shared delay variable and delay
-			shared!(ctx, |delay, delayval| delay.delay_ms(*delayval), delay, delayval);
-			// Turn off LED
-			led.set_low();
-			leds.lock(|v| {
-				pzb_state.lock(|x| {
-					let pzb_led = x.enabled(PzbCategory::O);
-					pzb_led.set_leds(v, false);
-				})
-			});
 
-			// Obtain shared delay variable and delay
-			shared!(ctx, |delay, delayval| delay.delay_ms(*delayval), delay, delayval);
+			shared!(
+				ctx,
+				|leds, pzb_state| {
+					let pzb_led = pzb_state.enabled(PzbCategory::O);
+					pzb_led.set_leds(leds, true);
+				},
+				leds,
+				pzb_state
+			);
+			shared!(
+				ctx,
+				|delay, delayval| delay.delay_ms(*delayval),
+				delay,
+				delayval
+			);
+			led.set_low();
+			shared!(
+				ctx,
+				|leds, pzb_state| {
+					let pzb_led = pzb_state.enabled(PzbCategory::O);
+					pzb_led.set_leds(leds, false);
+				},
+				leds,
+				pzb_state
+			);
+
+			shared!(
+				ctx,
+				|delay, delayval| delay.delay_ms(*delayval),
+				delay,
+				delayval
+			);
 		}
 	}
 
