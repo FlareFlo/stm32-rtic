@@ -339,10 +339,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d5439c4ad607c3c23abf66de8c8bf57ba8adcd1f129e699851a6e43935d339d"
 
 [[package]]
-name = "panic-halt"
-version = "0.2.0"
+name = "panic-probe"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de96540e0ebde571dc55c73d60ef407c653844e6f9a1e2fdbd40c07b9252d812"
+checksum = "aa6fa5645ef5a760cd340eaa92af9c1ce131c8c09e7f8926d8a24b59d26652b9"
+dependencies = [
+ "cortex-m",
+ "defmt",
+]
 
 [[package]]
 name = "pin-project-lite"
@@ -532,7 +536,7 @@ dependencies = [
  "defmt-rtt",
  "embedded-hal 1.0.0",
  "log",
- "panic-halt",
+ "panic-probe",
  "rtic",
  "rtic-sync",
  "stm32f4xx-hal",

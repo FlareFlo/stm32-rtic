@@ -7,7 +7,7 @@ pub mod led_state;
 pub mod pzb;
 pub mod pzb_state;
 
-use panic_halt as _;
+use panic_probe as _;
 
 mod pins {
 	use stm32f4xx_hal::gpio::{Output, PushPull, PA8, PA9, PB12, PB13, PB14, PB15};
@@ -23,7 +23,9 @@ mod pins {
 
 #[rtic::app(device = stm32f4xx_hal::pac, peripherals = true)]
 mod app {
-	use defmt::warn;
+	use cortex_m::asm::delay;
+	use defmt::{error, warn};
+	use defmt::export::panic;
 	use defmt_rtt as _;
 	use rtic::Mutex;
 	use stm32f4xx_hal::{
@@ -177,6 +179,7 @@ mod app {
 
 	#[task(binds = EXTI0, local = [button], shared = [pzb_state])]
 	fn gpio_interrupt_handler(mut ctx: gpio_interrupt_handler::Context) {
+		warn!("TEST PRINT");
 		ctx.local.button.clear_interrupt_pending_bit();
 		ctx.shared.pzb_state.lock(|state| {
 			*state = state.next();
