@@ -125,8 +125,8 @@ mod app {
 		let hz500 = gpioa.pa8.into_push_pull_output();
 		let command = gpioa.pa9.into_push_pull_output();
 
-		warn!("If you can read this with cargo-embed then everything works!");
-		panic!("If you can read also this with cargo-embed then everything works even better!");
+		warn!("If you can read this with cargo-embed then everything works!(warn)");
+		panic!("If you can read also this with cargo-embed then everything works even better! (panic)");
 
 		(
 			// Initialization of shared resources
