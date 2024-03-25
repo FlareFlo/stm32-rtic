@@ -23,5 +23,6 @@ features = ["stm32f411"] # replace the model of your microcontroller here
 
 [profile.release]
 codegen-units = 4
+debug = 2
 opt-level = 3            # <-
 overflow-checks = false  # <-

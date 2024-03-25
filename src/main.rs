@@ -8,6 +8,7 @@ pub mod pzb;
 pub mod pzb_state;
 
 use panic_probe as _;
+use defmt_rtt as _;
 
 mod pins {
 	use stm32f4xx_hal::gpio::{Output, PushPull, PA8, PA9, PB12, PB13, PB14, PB15};
@@ -123,6 +124,9 @@ mod app {
 		let hz1000 = gpiob.pb15.into_push_pull_output();
 		let hz500 = gpioa.pa8.into_push_pull_output();
 		let command = gpioa.pa9.into_push_pull_output();
+
+		warn!("If you can read this with cargo-embed then everything works!");
+		panic!("If you can read also this with cargo-embed then everything works even better!");
 
 		(
 			// Initialization of shared resources
