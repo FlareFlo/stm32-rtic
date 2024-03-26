@@ -125,6 +125,10 @@ mod app {
 		let hz500 = gpioa.pa8.into_push_pull_output();
 		let command = gpioa.pa9.into_push_pull_output();
 
+		for i in 0..100 {
+			warn!("Warn with {}.", i);
+		}
+
 		warn!("If you can read this with cargo-embed then everything works!(warn)");
 		panic!("If you can read also this with cargo-embed then everything works even better! (panic)");
 
