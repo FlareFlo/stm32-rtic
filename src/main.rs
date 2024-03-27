@@ -2,12 +2,14 @@
 #![no_main]
 #![no_std]
 #![allow(unused)] // TODO: Remove when done prototyping (never :)
+#![feature(async_closure)]
 
 pub mod led_state;
 pub mod pzb;
 pub mod pzb_state;
 
 use panic_probe as _;
+use rtic_monotonics::systick::ExtU32;
 
 pub mod pins {
 	use stm32f4xx_hal::gpio::{Output, PushPull, PA8, PA9, PB12, PB13, PB14, PB15};
@@ -35,6 +37,8 @@ mod app {
 		timer,
 	};
 	use rtic_monotonics::systick::Systick;
+	use core::ops::Deref;
+
 
 	use crate::{led_state::PzbLedState, pzb::PzbCategory, pzb_state::PzbState, shared};
 
@@ -76,6 +80,10 @@ mod app {
 		// 2) Configure the system clocks
 		// 25 MHz must be used for HSE on the Blackpill-STM32F411CE board according to manual
 		let clocks = rcc.cfgr.use_hse(25.MHz()).freeze();
+
+
+		let systick_token = rtic_monotonics::create_systick_token!();
+		Systick::start(ctx.core.SYST, clocks.sysclk().to_Hz(), systick_token);
 
 		// Configure RTC
 		let mut rtc = Rtc::new(dp.RTC, &mut dp.PWR);
@@ -148,17 +156,19 @@ mod app {
 		)
 	}
 
-	#[idle()]
-	fn idle(ctx: idle::Context) -> ! {
-		loop {
-
-		}
-	}
+	// Not used
+	// #[idle()]
+	// fn idle(ctx: idle::Context) -> ! {
+	// 	loop {
+	//
+	// 	}
+	// }
 
 	// Background task, runs whenever no other tasks are running
-	#[task(local = [led], shared = [delayval, leds, pzb_state, delay], priority = 1)]
-	async fn pzb_lights(ctx: pzb_lights::Context) {
+	#[task(local = [led], shared = [delayval, leds, pzb_state, delay])]
+	async fn pzb_lights(mut ctx: pzb_lights::Context) {
 		let led = ctx.local.led;
+		let mut delayval = ctx.shared.delayval;
 		loop {
 			led.set_high();
 
@@ -174,12 +184,7 @@ mod app {
 			);
 
 			// Sleep for full PZB cycle
-			shared!(
-				ctx,
-				|delay, delayval| Systick::delay(delayval.millis()).await,
-				delay,
-				delayval
-			);
+			Systick::delay(delayval.lock(|val|*val).millis()).await;
 			led.set_low();
 
 			// Set alternating PZB state
@@ -194,16 +199,11 @@ mod app {
 			);
 
 			// Sleep for full PZB cycle
-			shared!(
-				ctx,
-				|delay, delayval| Systick::delay(delayval.millis()).await,
-				delay,
-				delayval
-			);
+			Systick::delay(delayval.lock(|val|*val).millis()).await;
 		}
 	}
 
-	#[task(binds = EXTI0, local = [button], shared = [pzb_state, delay])]
+	#[task(binds = EXTI0, local = [button], shared = [pzb_state, delay], priority = 1)]
 	fn gpio_interrupt_handler(mut ctx: gpio_interrupt_handler::Context) {
 		ctx.local.button.clear_interrupt_pending_bit();
 		ctx.shared.pzb_state.lock(|state| {

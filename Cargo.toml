@@ -10,7 +10,7 @@ cortex-m-rt = "0.7.3"
 
 rtic = {version = "2.1.1", features=["thumbv7-backend"]}
 rtic-sync = "1.3.0"
-rtic-monotonics = {version = "1.5.0", features = ["stm32f411ce"]}
+rtic-monotonics = {version = "1.5.0", features = ["stm32f411ce", "cortex-m-systick"]}
 
 defmt = "0.3.5"
 defmt-rtt = { version = "0.4.0"}
@@ -24,5 +24,6 @@ features = ["stm32f411"] # replace the model of your microcontroller here
 
 [profile.release]
 codegen-units = 4
+debug = 2
 opt-level = 3            # <-
 overflow-checks = false  # <-
