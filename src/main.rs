@@ -9,7 +9,7 @@ pub mod pzb_state;
 
 use panic_probe as _;
 
-mod pins {
+pub mod pins {
 	use stm32f4xx_hal::gpio::{Output, PushPull, PA8, PA9, PB12, PB13, PB14, PB15};
 
 	pub type Blue55 = PB12<Output<PushPull>>;
@@ -21,7 +21,7 @@ mod pins {
 	pub type Command = PA9<Output<PushPull>>;
 }
 
-#[rtic::app(device = stm32f4xx_hal::pac, peripherals = true)]
+#[rtic::app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [SDIO])]
 mod app {
 	use cortex_m::asm::delay;
 	use defmt::{error, export::panic, warn};
@@ -34,6 +34,7 @@ mod app {
 		rtc::{Event, Rtc},
 		timer,
 	};
+	use rtic_monotonics::systick::Systick;
 
 	use crate::{led_state::PzbLedState, pzb::PzbCategory, pzb_state::PzbState, shared};
 
@@ -124,6 +125,8 @@ mod app {
 		let hz500 = gpioa.pa8.into_push_pull_output();
 		let command = gpioa.pa9.into_push_pull_output();
 
+
+		pzb_lights::spawn().ok();
 		(
 			// Initialization of shared resources
 			Shared {
@@ -145,9 +148,16 @@ mod app {
 		)
 	}
 
+	#[idle()]
+	fn idle(ctx: idle::Context) -> ! {
+		loop {
+
+		}
+	}
+
 	// Background task, runs whenever no other tasks are running
-	#[idle(local = [led], shared = [delayval, leds, pzb_state, delay])]
-	fn idle(mut ctx: idle::Context) -> ! {
+	#[task(local = [led], shared = [delayval, leds, pzb_state, delay], priority = 1)]
+	async fn pzb_lights(ctx: pzb_lights::Context) {
 		let led = ctx.local.led;
 		loop {
 			led.set_high();
@@ -166,7 +176,7 @@ mod app {
 			// Sleep for full PZB cycle
 			shared!(
 				ctx,
-				|delay, delayval| delay.delay_ms(*delayval),
+				|delay, delayval| Systick::delay(delayval.millis()).await,
 				delay,
 				delayval
 			);
@@ -186,7 +196,7 @@ mod app {
 			// Sleep for full PZB cycle
 			shared!(
 				ctx,
-				|delay, delayval| delay.delay_ms(*delayval),
+				|delay, delayval| Systick::delay(delayval.millis()).await,
 				delay,
 				delayval
 			);
