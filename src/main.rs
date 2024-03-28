@@ -152,6 +152,7 @@ mod app {
 
 		pzb_lights::spawn().unwrap();
 		aht20::spawn().unwrap();
+		blinky::spawn().unwrap();
 		(
 			// Initialization of shared resources
 			Shared {
@@ -182,13 +183,10 @@ mod app {
 	// }
 
 	// Background task, runs whenever no other tasks are running
-	#[task(local = [led], shared = [delayval, leds, pzb_state, delay])]
+	#[task(shared = [delayval, leds, pzb_state, delay])]
 	async fn pzb_lights(mut ctx: pzb_lights::Context) {
-		let led = ctx.local.led;
 		let mut delayval = ctx.shared.delayval;
 		loop {
-			led.set_high();
-
 			// Set non-alternating PZB state
 			shared!(
 				ctx,
@@ -202,7 +200,6 @@ mod app {
 
 			// Sleep for full PZB cycle
 			Systick::delay(delayval.lock(|val|*val).millis()).await;
-			led.set_low();
 
 			// Set alternating PZB state
 			shared!(
@@ -220,6 +217,18 @@ mod app {
 		}
 	}
 
+	#[task(local = [led])]
+	async fn blinky(mut ctx: blinky::Context) {
+		let led = ctx.local.led;
+		loop {
+			let delay = 50_u32.millis();
+			led.set_high();
+			Systick::delay(delay).await;
+			led.set_low();
+			Systick::delay(delay).await;
+		}
+	}
+
 	#[task(local = [aht20])]
 	async fn aht20(mut ctx: aht20::Context) {
 		let sensor = ctx.local.aht20;
@@ -227,9 +236,8 @@ mod app {
 			let measurement = sensor.measure().unwrap();
 			Systick::delay(100_u32.millis()).await;
 
-			info!("temp: {=f32} hum: {}%", measurement.temperature.celcius(), measurement.relative_humidity);
+			info!("temp: {=f32} hum: {}% abs-hum: {}g/m³", measurement.temperature.celcius(), measurement.relative_humidity, measurement.absolute_humidity());
 
-			// Sleep for full PZB cycle
 			Systick::delay(400_u32.millis()).await;
 		}
 	}
