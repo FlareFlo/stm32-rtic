@@ -26,7 +26,7 @@ pub mod pins {
 #[rtic::app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [SDIO])]
 mod app {
 	use cortex_m::asm::delay;
-	use defmt::{error, export::panic, warn};
+	use defmt::{error, export::panic, info, warn};
 	use defmt_rtt as _;
 	use rtic::{mutex_prelude::TupleExt02, Mutex};
 	use stm32f4xx_hal::{
@@ -38,6 +38,11 @@ mod app {
 	};
 	use rtic_monotonics::systick::Systick;
 	use core::ops::Deref;
+	use stm32f4xx_hal::i2c::I2c;
+	use embedded_aht20::Aht20;
+	use embedded_aht20::DEFAULT_I2C_ADDRESS;
+	use stm32f4xx_hal::pac::{I2C1, TIM2};
+	use stm32f4xx_hal::timer::Delay;
 
 
 	use crate::{led_state::PzbLedState, pzb::PzbCategory, pzb_state::PzbState, shared};
@@ -67,6 +72,7 @@ mod app {
 	struct Local {
 		button: gpio::PA0<Input>,
 		led:    gpio::PC13<Output<PushPull>>,
+		aht20: Aht20<I2c<I2C1>, Delay<TIM2, 1000>>,
 	}
 
 	#[init]
@@ -133,8 +139,19 @@ mod app {
 		let hz500 = gpioa.pa8.into_push_pull_output();
 		let command = gpioa.pa9.into_push_pull_output();
 
+		let i2c_temp = I2c::new(
+			dp.I2C1,
+			(gpiob.pb6,
+			 gpiob.pb7),
+			100_u32.kHz(),
+			&clocks
+		);
 
-		pzb_lights::spawn().ok();
+		let aht20 = Aht20::new(i2c_temp, DEFAULT_I2C_ADDRESS, dp.TIM2.delay_ms(&clocks)).unwrap();
+
+
+		pzb_lights::spawn().unwrap();
+		aht20::spawn().unwrap();
 		(
 			// Initialization of shared resources
 			Shared {
@@ -152,7 +169,7 @@ mod app {
 				delay,
 			},
 			// Initialization of task local resources
-			Local { button, led },
+			Local { button, led, aht20 },
 		)
 	}
 
@@ -200,6 +217,20 @@ mod app {
 
 			// Sleep for full PZB cycle
 			Systick::delay(delayval.lock(|val|*val).millis()).await;
+		}
+	}
+
+	#[task(local = [aht20])]
+	async fn aht20(mut ctx: aht20::Context) {
+		let sensor = ctx.local.aht20;
+		loop {
+			let measurement = sensor.measure().unwrap();
+			Systick::delay(100_u32.millis()).await;
+
+			info!("temp: {=f32} hum: {}%", measurement.temperature.celcius(), measurement.relative_humidity);
+
+			// Sleep for full PZB cycle
+			Systick::delay(400_u32.millis()).await;
 		}
 	}
 

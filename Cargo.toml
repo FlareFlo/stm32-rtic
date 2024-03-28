@@ -18,6 +18,8 @@ panic-probe = { version = "0.3.1", features = ["print-defmt"] }
 
 embedded-hal = "1.0.0"
 
+embedded-aht20 = "0.1.1"
+
 [dependencies.stm32f4xx-hal]
 version = "0.20.0"
 features = ["stm32f411"] # replace the model of your microcontroller here
