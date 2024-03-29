@@ -247,6 +247,7 @@ mod app {
 		ctx.local.button.0.clear_interrupt_pending_bit();
 		
 		let now = ctx.shared.rtc.lock(|rtc| rtc.get_datetime());
+		// This means we can debounce up to a minute
 		let relative_time = now.second() as u16 + 1000 * now.millisecond();
 
 		// If this case is true, it means the button was "pressed" within the same millisecond
