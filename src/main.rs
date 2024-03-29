@@ -70,7 +70,7 @@ mod app {
 	// Local resources to specific tasks (cannot be shared)
 	#[local]
 	struct Local {
-		button: gpio::PA0<Input>,
+		button: (gpio::PA0<Input>, u16),
 		led:    gpio::PC13<Output<PushPull>>,
 		aht20: Aht20<I2c<I2C1>, Delay<TIM2, 1000>>,
 	}
@@ -170,7 +170,7 @@ mod app {
 				delay,
 			},
 			// Initialization of task local resources
-			Local { button, led, aht20 },
+			Local { button: (button, 0), led, aht20 },
 		)
 	}
 
@@ -221,7 +221,7 @@ mod app {
 	async fn blinky(mut ctx: blinky::Context) {
 		let led = ctx.local.led;
 		loop {
-			let delay = 50_u32.millis();
+			let delay = 500_u32.millis();
 			led.set_high();
 			Systick::delay(delay).await;
 			led.set_low();
@@ -242,12 +242,24 @@ mod app {
 		}
 	}
 
-	#[task(binds = EXTI0, local = [button], shared = [pzb_state, delay], priority = 1)]
+	#[task(binds = EXTI0, local = [button], shared = [pzb_state, delay, rtc], priority = 1)]
 	fn gpio_interrupt_handler(mut ctx: gpio_interrupt_handler::Context) {
-		ctx.local.button.clear_interrupt_pending_bit();
+		ctx.local.button.0.clear_interrupt_pending_bit();
+		
+		let now = ctx.shared.rtc.lock(|rtc| rtc.get_datetime());
+		let relative_time = now.second() as u16 + 1000 * now.millisecond();
+
+		// If this case is true, it means the button was "pressed" within the same millisecond
+		// therefore we will reject its input and return early
+		if ctx.local.button.1 == relative_time {
+			return;
+		}
+		ctx.local.button.1 = relative_time;
+
 		ctx.shared.pzb_state.lock(|state| {
 			*state = state.next();
 		});
+		
 	}
 }
 
