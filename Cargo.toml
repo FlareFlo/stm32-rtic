@@ -19,6 +19,7 @@ panic-probe = { version = "0.3.1", features = ["print-defmt"] }
 embedded-hal = "1.0.0"
 
 embedded-aht20 = "0.1.1"
+time = { version = "0.3.34", default-features = false }
 
 [dependencies.stm32f4xx-hal]
 version = "0.20.0"

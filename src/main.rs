@@ -37,12 +37,13 @@ mod app {
 		timer,
 	};
 	use rtic_monotonics::systick::Systick;
-	use core::ops::Deref;
+	use core::ops::{Deref, Sub};
 	use stm32f4xx_hal::i2c::I2c;
 	use embedded_aht20::Aht20;
 	use embedded_aht20::DEFAULT_I2C_ADDRESS;
 	use stm32f4xx_hal::pac::{I2C1, TIM2};
 	use stm32f4xx_hal::timer::Delay;
+	use time::{Duration, PrimitiveDateTime};
 
 
 	use crate::{led_state::PzbLedState, pzb::PzbCategory, pzb_state::PzbState, shared};
@@ -70,7 +71,7 @@ mod app {
 	// Local resources to specific tasks (cannot be shared)
 	#[local]
 	struct Local {
-		button: (gpio::PA0<Input>, u16),
+		button: (gpio::PA0<Input>, PrimitiveDateTime),
 		led:    gpio::PC13<Output<PushPull>>,
 		aht20: Aht20<I2c<I2C1>, Delay<TIM2, 1000>>,
 	}
@@ -149,6 +150,8 @@ mod app {
 
 		let aht20 = Aht20::new(i2c_temp, DEFAULT_I2C_ADDRESS, dp.TIM2.delay_ms(&clocks)).unwrap();
 
+		let now = rtc.get_datetime();
+
 
 		pzb_lights::spawn().unwrap();
 		aht20::spawn().unwrap();
@@ -170,7 +173,7 @@ mod app {
 				delay,
 			},
 			// Initialization of task local resources
-			Local { button: (button, 0), led, aht20 },
+			Local { button: (button, now), led, aht20 },
 		)
 	}
 
@@ -247,15 +250,13 @@ mod app {
 		ctx.local.button.0.clear_interrupt_pending_bit();
 		
 		let now = ctx.shared.rtc.lock(|rtc| rtc.get_datetime());
-		// This means we can debounce up to a minute
-		let relative_time = now.second() as u16 + 1000 * now.millisecond();
 
 		// If this case is true, it means the button was "pressed" within the same millisecond
 		// therefore we will reject its input and return early
-		if ctx.local.button.1 == relative_time {
+		if now - ctx.local.button.1 <= Duration::milliseconds(100)  {
 			return;
 		}
-		ctx.local.button.1 = relative_time;
+		ctx.local.button.1 = now;
 
 		ctx.shared.pzb_state.lock(|state| {
 			*state = state.next();
