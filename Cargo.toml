@@ -1,4 +1,4 @@
-workspace = { members = ["rpm-measure"] }
+workspace = { members = ["tachometer"] }
 
 [package]
 name = "stm32-rtic"
