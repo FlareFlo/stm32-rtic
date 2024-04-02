@@ -25,26 +25,24 @@ pub mod pins {
 
 #[rtic::app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [SDIO])]
 mod app {
+	use core::ops::{Deref, Sub};
+
 	use cortex_m::asm::delay;
 	use defmt::{error, export::panic, info, warn};
 	use defmt_rtt as _;
+	use embedded_aht20::{Aht20, DEFAULT_I2C_ADDRESS};
 	use rtic::{mutex_prelude::TupleExt02, Mutex};
+	use rtic_monotonics::systick::Systick;
 	use stm32f4xx_hal::{
 		gpio::{self, Edge, Input, Output, PushPull},
-		pac::TIM1,
+		i2c::I2c,
+		pac::{I2C1, TIM1, TIM2},
 		prelude::*,
 		rtc::{Event, Rtc},
 		timer,
+		timer::Delay,
 	};
-	use rtic_monotonics::systick::Systick;
-	use core::ops::{Deref, Sub};
-	use stm32f4xx_hal::i2c::I2c;
-	use embedded_aht20::Aht20;
-	use embedded_aht20::DEFAULT_I2C_ADDRESS;
-	use stm32f4xx_hal::pac::{I2C1, TIM2};
-	use stm32f4xx_hal::timer::Delay;
 	use time::{Duration, PrimitiveDateTime};
-
 
 	use crate::{led_state::PzbLedState, pzb::PzbCategory, pzb_state::PzbState, shared};
 
@@ -73,7 +71,7 @@ mod app {
 	struct Local {
 		button: (gpio::PA0<Input>, PrimitiveDateTime),
 		led:    gpio::PC13<Output<PushPull>>,
-		aht20: Aht20<I2c<I2C1>, Delay<TIM2, 1000>>,
+		aht20:  Aht20<I2c<I2C1>, Delay<TIM2, 1000>>,
 	}
 
 	#[init]
@@ -87,7 +85,6 @@ mod app {
 		// 2) Configure the system clocks
 		// 25 MHz must be used for HSE on the Blackpill-STM32F411CE board according to manual
 		let clocks = rcc.cfgr.use_hse(25.MHz()).freeze();
-
 
 		let systick_token = rtic_monotonics::create_systick_token!();
 		Systick::start(ctx.core.SYST, clocks.sysclk().to_Hz(), systick_token);
@@ -140,18 +137,11 @@ mod app {
 		let hz500 = gpioa.pa8.into_push_pull_output();
 		let command = gpioa.pa9.into_push_pull_output();
 
-		let i2c_temp = I2c::new(
-			dp.I2C1,
-			(gpiob.pb6,
-			 gpiob.pb7),
-			100_u32.kHz(),
-			&clocks
-		);
+		let i2c_temp = I2c::new(dp.I2C1, (gpiob.pb6, gpiob.pb7), 100_u32.kHz(), &clocks);
 
 		let aht20 = Aht20::new(i2c_temp, DEFAULT_I2C_ADDRESS, dp.TIM2.delay_ms(&clocks)).unwrap();
 
 		let now = rtc.get_datetime();
-
 
 		pzb_lights::spawn().unwrap();
 		aht20::spawn().unwrap();
@@ -173,7 +163,11 @@ mod app {
 				delay,
 			},
 			// Initialization of task local resources
-			Local { button: (button, now), led, aht20 },
+			Local {
+				button: (button, now),
+				led,
+				aht20,
+			},
 		)
 	}
 
@@ -202,7 +196,7 @@ mod app {
 			);
 
 			// Sleep for full PZB cycle
-			Systick::delay(delayval.lock(|val|*val).millis()).await;
+			Systick::delay(delayval.lock(|val| *val).millis()).await;
 
 			// Set alternating PZB state
 			shared!(
@@ -216,7 +210,7 @@ mod app {
 			);
 
 			// Sleep for full PZB cycle
-			Systick::delay(delayval.lock(|val|*val).millis()).await;
+			Systick::delay(delayval.lock(|val| *val).millis()).await;
 		}
 	}
 
@@ -239,7 +233,12 @@ mod app {
 			let measurement = sensor.measure().unwrap();
 			Systick::delay(100_u32.millis()).await;
 
-			info!("temp: {=f32} hum: {}% abs-hum: {}g/m³", measurement.temperature.celcius(), measurement.relative_humidity, measurement.absolute_humidity());
+			info!(
+				"temp: {=f32} hum: {}% abs-hum: {}g/m³",
+				measurement.temperature.celcius(),
+				measurement.relative_humidity,
+				measurement.absolute_humidity()
+			);
 
 			Systick::delay(400_u32.millis()).await;
 		}
@@ -248,12 +247,12 @@ mod app {
 	#[task(binds = EXTI0, local = [button], shared = [pzb_state, delay, rtc], priority = 1)]
 	fn gpio_interrupt_handler(mut ctx: gpio_interrupt_handler::Context) {
 		ctx.local.button.0.clear_interrupt_pending_bit();
-		
+
 		let now = ctx.shared.rtc.lock(|rtc| rtc.get_datetime());
 
 		// If this case is true, it means the button was "pressed" within the same millisecond
 		// therefore we will reject its input and return early
-		if now - ctx.local.button.1 <= Duration::milliseconds(100)  {
+		if now - ctx.local.button.1 <= Duration::milliseconds(100) {
 			return;
 		}
 		ctx.local.button.1 = now;
@@ -261,7 +260,6 @@ mod app {
 		ctx.shared.pzb_state.lock(|state| {
 			*state = state.next();
 		});
-		
 	}
 }
 

@@ -1,3 +1,5 @@
+workspace = { members = ["rpm-measure"] }
+
 [package]
 name = "stm32-rtic"
 version = "0.1.0"
