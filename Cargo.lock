@@ -3,6 +3,12 @@
 version = 3
 
 [[package]]
+name = "arrayvec"
+version = "0.7.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "96d30a06541fbafbc7f82ed10c06164cfbd2c401138f6addd8404629c4b16711"
+
+[[package]]
 name = "atomic-polyfill"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -314,6 +320,12 @@ checksum = "98de4bbd547a563b716d8dfa9aad1cb19bfab00f4fa09a6a4ed21dbcf44ce9c4"
 dependencies = [
  "num-traits",
 ]
+
+[[package]]
+name = "format_no_std"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d8ca877c98f19024674b6959301d81d3708c417823fa050692b45b54d74fe7d"
 
 [[package]]
 name = "fugit"
@@ -652,6 +664,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "ryu"
+version = "1.0.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e86697c916019a8588c99b5fac3cead74ec0b4b819707a682fd4d23fa0ce1ba1"
+
+[[package]]
 name = "semver"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -704,7 +722,7 @@ dependencies = [
  "defmt-rtt",
  "embedded-graphics",
  "embedded-hal 1.0.0",
- "itoa",
+ "format_no_std",
  "panic-probe",
  "ringbuffer",
  "rtic",
@@ -715,6 +733,7 @@ dependencies = [
  "tachometer",
  "time",
  "tinytga",
+ "to-arraystring",
 ]
 
 [[package]]
@@ -830,6 +849,17 @@ checksum = "477839bd612acb4d0551915eaf6eef8cc1b3a9dd58e18e9c2b746c78614a25d5"
 dependencies = [
  "embedded-graphics",
  "nom",
+]
+
+[[package]]
+name = "to-arraystring"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ebb6a403b7fb46904d796b3b2acfa31885440adc51925e6fc19ac28cf4afa661"
+dependencies = [
+ "arrayvec",
+ "itoa",
+ "ryu",
 ]
 
 [[package]]

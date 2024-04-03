@@ -45,6 +45,7 @@ mod app {
 		timer::Delay,
 	};
 	use time::{Duration, PrimitiveDateTime};
+	use to_arraystring::ToArrayString;
 	use tachometer::{Tachometer, TireDimensions};
 
 	use crate::{shared};
@@ -187,10 +188,11 @@ mod app {
 	// }
 
 
-	#[task(local = [led])]
+	#[task(local = [led], shared = [tacho, rtc])]
 	async fn blinky(mut ctx: blinky::Context) {
 		let led = ctx.local.led;
 		loop {
+			ctx.shared.tacho.lock(|tacho|tacho.insert(ctx.shared.rtc.lock(|rtc| rtc.get_datetime()).assume_utc().unix_timestamp_nanos() / 1_000_000));
 			let delay = 500_u32.millis();
 			led.set_high();
 			Systick::delay(delay).await;
@@ -204,21 +206,40 @@ mod app {
 		let display = ctx.local.display;
 		let rtc = &mut ctx.shared.rtc;
 
-		let character_style = MonoTextStyle::new(&FONT_10X20, BinaryColor::On);
-		let timeframe = 3000; // Milliseconds
+		let timeframe = 50_000; // Milliseconds
 
-		let mut fc = 0;
+		let mut fc: u32 = 0;
 		loop {
-			let latest_distance = ctx.shared.tacho.lock(|tacho|tacho.last_distance_moved(timeframe)) / timeframe as f32;
-			println!("{}", latest_distance);
-			let mut buf = itoa::Buffer::new();
+			let now = ctx.shared.rtc.lock(|rtc| rtc.get_datetime());
+
+			let latest_distance = ctx.shared.tacho.lock(|tacho|tacho.last_distance_moved(timeframe, now.assume_utc().unix_timestamp_nanos() / 1_000_000));
+			let speed = (latest_distance / (timeframe as f32 / 64.0));
+			println!("Speed: {}", speed);
+
+			let mut buf = [0u8; 30];
+			let formatted = format_no_std::show(
+				&mut buf,
+				format_args!("{speed:.1}kmh")
+			).unwrap();
+
 			display.clear_buffer();
+
+			// Draw speed
 			Text::with_alignment(
-				buf.format(latest_distance as u32),
+				formatted,
 				display.bounding_box().center() + Point::new(0, 15),
-				character_style,
+				MonoTextStyle::new(&FONT_10X20, BinaryColor::On),
 				Alignment::Center,
 			).draw(display).unwrap();
+
+			// Draw frame counter
+			Text::with_alignment(
+				fc.to_arraystring().as_str(),
+				Point::new(0, 6),
+				MonoTextStyle::new(&FONT_6X9, BinaryColor::On),
+				Alignment::Left,
+			).draw(display).unwrap();
+
 			display.flush().unwrap();
 			Systick::delay(33_u32.millis()).await;
 			fc += 1;
@@ -257,7 +278,7 @@ mod app {
 		}
 		ctx.local.button.1 = now;
 
-		ctx.shared.tacho.lock(|tacho|tacho.insert(now.assume_utc().unix_timestamp()));
+		ctx.shared.tacho.lock(|tacho|tacho.insert(now.assume_utc().unix_timestamp_nanos() / 1_000_000));
 	}
 }
 

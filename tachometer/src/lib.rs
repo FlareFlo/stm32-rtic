@@ -7,7 +7,7 @@ use ringbuffer::{ConstGenericRingBuffer as Ringbuffer, RingBuffer};
 // Every rotation should add one timestamp
 pub struct Tachometer<const CAPACITY: usize> {
 	// Leaking internal struct due to IntoIter impl
-	pub buf: Ringbuffer<i64, CAPACITY>,
+	pub buf: Ringbuffer<i128, CAPACITY>,
 	pub tire: TireDimensions,
 }
 
@@ -20,22 +20,20 @@ impl<const CAPACITY: usize> Tachometer<CAPACITY> {
 	}
 
 	// Returns elements in the last n milliseconds
-	pub fn last_millis(&self, threshold: i64) -> impl Iterator<Item = i64> + '_ {
-		// TODO: Using default of max works? Should mean nothing falls within threshold
-		let newest = self.buf.get_signed(-1).unwrap_or(&i64::MAX);
+	pub fn last_millis(&self, threshold: i128, now: i128) -> impl Iterator<Item = i128> + '_ {
 		self.buf
 			.iter()
-			.filter(move |&e| (newest.saturating_sub(threshold)..=*newest).contains(e))
+			.filter(move |&e| (now.saturating_sub(threshold)..).contains(e))
 			.map(|e|*e)
 	}
 
 	// Returns distance covered in the last n milliseconds
-	pub fn last_distance_moved(&self, threshold: i64) -> f32 {
-		let last = self.last_millis(threshold);
+	pub fn last_distance_moved(&self, threshold: i128, now: i128) -> f32 {
+		let last = self.last_millis(threshold, now);
 		last.count() as f32 * self.tire.circumference()
 	}
 
-	pub fn insert(&mut self, timestamp: i64) {
+	pub fn insert(&mut self, timestamp: i128) {
 		self.buf.push(timestamp)
 	}
 }
