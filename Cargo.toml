@@ -20,8 +20,11 @@ panic-probe = { version = "0.3.1", features = ["print-defmt"] }
 
 embedded-hal = "1.0.0"
 
-embedded-aht20 = "0.1.1"
 time = { version = "0.3.34", default-features = false }
+ssd1306 = "0.8.4"
+embedded-graphics = { version = "0.8.1", features = ["defmt"] }
+itoa = "1.0.11"
+tinytga = "0.5.0"
 
 [dependencies.stm32f4xx-hal]
 version = "0.20.0"
@@ -32,3 +35,7 @@ codegen-units = 4
 debug = 2
 opt-level = 3            # <-
 overflow-checks = false  # <-
+lto = true
+
+[features]
+startup-logo = []

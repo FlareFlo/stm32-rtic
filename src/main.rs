@@ -28,11 +28,28 @@ mod app {
 	use core::ops::{Deref, Sub};
 
 	use cortex_m::asm::delay;
-	use defmt::{error, export::panic, info, warn};
+	use defmt::{error, export::panic, info, println, warn};
 	use defmt_rtt as _;
-	use embedded_aht20::{Aht20, DEFAULT_I2C_ADDRESS};
+	use embedded_graphics::image::Image;
+
+	use embedded_graphics::prelude::*;
+	use embedded_graphics::mono_font::ascii::*;
+	use embedded_graphics::mono_font::*;
+	use embedded_graphics::pixelcolor::BinaryColor;
+	use embedded_graphics::primitives::Rectangle;
+	use embedded_graphics::text::Text;
+	use embedded_graphics::text::Alignment;
+
 	use rtic::{mutex_prelude::TupleExt02, Mutex};
 	use rtic_monotonics::systick::Systick;
+
+	use ssd1306::mode::BufferedGraphicsMode;
+	use ssd1306::{I2CDisplayInterface, Ssd1306};
+	use ssd1306::prelude::I2CInterface;
+	use ssd1306::rotation::DisplayRotation;
+	use ssd1306::size::DisplaySize128x64;
+	use ssd1306::mode::DisplayConfig;
+
 	use stm32f4xx_hal::{
 		gpio::{self, Edge, Input, Output, PushPull},
 		i2c::I2c,
@@ -71,7 +88,7 @@ mod app {
 	struct Local {
 		button: (gpio::PA0<Input>, PrimitiveDateTime),
 		led:    gpio::PC13<Output<PushPull>>,
-		aht20:  Aht20<I2c<I2C1>, Delay<TIM2, 1000>>,
+		display:  Ssd1306<I2CInterface<I2c<I2C1>>, DisplaySize128x64, BufferedGraphicsMode<DisplaySize128x64>>,
 	}
 
 	#[init]
@@ -101,7 +118,7 @@ mod app {
 		let _ = rtc.set_seconds(00);
 
 		// 3) Create delay handle
-		let delay = dp.TIM1.delay_ms(&clocks);
+		let mut delay = dp.TIM1.delay_ms(&clocks);
 
 		let gpiob = dp.GPIOB.split();
 
@@ -137,14 +154,35 @@ mod app {
 		let hz500 = gpioa.pa8.into_push_pull_output();
 		let command = gpioa.pa9.into_push_pull_output();
 
-		let i2c_temp = I2c::new(dp.I2C1, (gpiob.pb6, gpiob.pb7), 100_u32.kHz(), &clocks);
+		let i2c1 = I2c::new(dp.I2C1, (gpiob.pb6, gpiob.pb7), 600_u32.kHz(), &clocks);
+		let interface = I2CDisplayInterface::new(i2c1);
 
-		let aht20 = Aht20::new(i2c_temp, DEFAULT_I2C_ADDRESS, dp.TIM2.delay_ms(&clocks)).unwrap();
+		let mut display = Ssd1306::new(
+			interface,
+			DisplaySize128x64,
+			DisplayRotation::Rotate0,
+		).into_buffered_graphics_mode();
+		display.init().unwrap();
+
+		#[cfg(feature = "startup-logo")]
+		{
+			use tinytga::Tga;
+			use embedded_graphics::pixelcolor::BinaryColor;
+
+			let data = include_bytes!("../images/feris/final.tga");
+			let tga: Tga<BinaryColor> = Tga::from_slice(data).unwrap();
+			Image::new(&tga, Point::zero()).draw(&mut display).unwrap();
+			display.flush().unwrap();
+			delay.delay_ms(5000);
+		}
+
+		display.flush().unwrap();
+
 
 		let now = rtc.get_datetime();
 
-		pzb_lights::spawn().unwrap();
-		aht20::spawn().unwrap();
+		// pzb_lights::spawn().unwrap();
+		display::spawn().unwrap();
 		blinky::spawn().unwrap();
 		(
 			// Initialization of shared resources
@@ -166,7 +204,7 @@ mod app {
 			Local {
 				button: (button, now),
 				led,
-				aht20,
+				display,
 			},
 		)
 	}
@@ -226,23 +264,45 @@ mod app {
 		}
 	}
 
-	#[task(local = [aht20])]
-	async fn aht20(mut ctx: aht20::Context) {
-		let sensor = ctx.local.aht20;
+	#[task(local = [display], shared = [rtc])]
+	async fn display(mut ctx: display::Context) {
+		let display = ctx.local.display;
+		let rtc = &mut ctx.shared.rtc;
+		let character_style = MonoTextStyle::new(&FONT_10X20, BinaryColor::On);
+		let mut fc = 0;
 		loop {
-			let measurement = sensor.measure().unwrap();
-			Systick::delay(100_u32.millis()).await;
-
-			info!(
-				"temp: {=f32} hum: {}% abs-hum: {}g/m³",
-				measurement.temperature.celcius(),
-				measurement.relative_humidity,
-				measurement.absolute_humidity()
-			);
-
-			Systick::delay(400_u32.millis()).await;
+			let mut buf = itoa::Buffer::new();
+			display.clear_buffer();
+			Text::with_alignment(
+				buf.format(fc),
+				display.bounding_box().center() + Point::new(0, 15),
+				character_style,
+				Alignment::Center,
+			).draw(display).unwrap();
+			display.flush().unwrap();
+			Systick::delay(33_u32.millis()).await;
+			fc += 1;
 		}
 	}
+
+	// #[task(local = [display], shared = [rtc])]
+	// async fn display(mut ctx: display::Context) {
+	// 	let display = ctx.local.display;
+	// 	let rtc = &mut ctx.shared.rtc;
+	// 	loop {
+	// 		let now = rtc.lock(|rtc|rtc.get_datetime());
+	// 		display.fill_solid(&Rectangle::new(Point::zero(), Size::new(128, 64)), BinaryColor::On);
+	// 		display.flush().unwrap();
+	// 		let after = rtc.lock(|rtc|rtc.get_datetime());
+	// 		println!("{}", 1.0 / (after - now).as_seconds_f64());
+	//
+	// 		let now = rtc.lock(|rtc|rtc.get_datetime());
+	// 		display.fill_solid(&Rectangle::new(Point::zero(), Size::new(128, 64)), BinaryColor::Off);
+	// 		display.flush().unwrap();
+	// 		let after = rtc.lock(|rtc|rtc.get_datetime());
+	// 		println!("{}", 1.0 / (after - now).as_seconds_f64());
+	// 	}
+	// }
 
 	#[task(binds = EXTI0, local = [button], shared = [pzb_state, delay, rtc], priority = 1)]
 	fn gpio_interrupt_handler(mut ctx: gpio_interrupt_handler::Context) {

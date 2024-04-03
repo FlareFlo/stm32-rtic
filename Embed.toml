@@ -1,5 +1,8 @@
 [default.general]
 chip = "STM32F411CEUx"
 
+[default.probe]
+#speed = 1800
+
 [default.rtt]
 enabled = true
