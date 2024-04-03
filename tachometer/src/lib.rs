@@ -1,6 +1,4 @@
-#![cfg_attr(not(test), no_std)]
-
-extern crate alloc;
+#![cfg_attr(feature = "no-std", no_std)]
 
 use core::f32::consts::PI;
 use ringbuffer::{ConstGenericRingBuffer as Ringbuffer, RingBuffer};
@@ -36,6 +34,10 @@ impl<const CAPACITY: usize> Tachometer<CAPACITY> {
 		let last = self.last_millis(threshold);
 		last.count() as f32 * self.tire.circumference()
 	}
+
+	pub fn insert(&mut self, timestamp: i64) {
+		self.buf.push(timestamp)
+	}
 }
 
 pub enum TireDimensions {
@@ -57,6 +59,9 @@ impl TireDimensions {
 
 #[cfg(test)]
 mod test {
+	#[cfg(feature = "no-std")]
+	compiler_error!("cant run test in no-std");
+
 	use alloc::vec;
 	use alloc::vec::Vec;
 	use ringbuffer::RingBuffer;

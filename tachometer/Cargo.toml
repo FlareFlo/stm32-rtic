@@ -9,4 +9,4 @@ edition = "2021"
 ringbuffer = { version = "0.15.0", default-features = false }
 
 [features]
-std = []
+no-std = []

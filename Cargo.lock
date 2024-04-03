@@ -712,6 +712,7 @@ dependencies = [
  "rtic-sync",
  "ssd1306",
  "stm32f4xx-hal",
+ "tachometer",
  "time",
  "tinytga",
 ]

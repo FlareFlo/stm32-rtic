@@ -45,6 +45,7 @@ mod app {
 		timer::Delay,
 	};
 	use time::{Duration, PrimitiveDateTime};
+	use tachometer::{Tachometer, TireDimensions};
 
 	use crate::{shared};
 
@@ -54,7 +55,8 @@ mod app {
 		delayval: u32,
 		rtc:      Rtc,
 		delay:    timer::DelayMs<TIM1>,
-
+		// 75 samples should suffice for around 10 seconds of history at 60 km/h
+		tacho: Tachometer<75>,
 	}
 
 	// Local resources to specific tasks (cannot be shared)
@@ -155,6 +157,7 @@ mod app {
 
 		let now = rtc.get_datetime();
 
+
 		// pzb_lights::spawn().unwrap();
 		display::spawn().unwrap();
 		blinky::spawn().unwrap();
@@ -164,6 +167,7 @@ mod app {
 				delayval: 500_u32,
 				rtc,
 				delay,
+				tacho: Tachometer::new(TireDimensions::Diameter(70.0)),
 			},
 			// Initialization of task local resources
 			Local {
@@ -195,17 +199,22 @@ mod app {
 		}
 	}
 
-	#[task(local = [display], shared = [rtc])]
+	#[task(local = [display], shared = [rtc, tacho])]
 	async fn display(mut ctx: display::Context) {
 		let display = ctx.local.display;
 		let rtc = &mut ctx.shared.rtc;
+
 		let character_style = MonoTextStyle::new(&FONT_10X20, BinaryColor::On);
+		let timeframe = 3000; // Milliseconds
+
 		let mut fc = 0;
 		loop {
+			let latest_distance = ctx.shared.tacho.lock(|tacho|tacho.last_distance_moved(timeframe)) / timeframe as f32;
+			println!("{}", latest_distance);
 			let mut buf = itoa::Buffer::new();
 			display.clear_buffer();
 			Text::with_alignment(
-				buf.format(fc),
+				buf.format(latest_distance as u32),
 				display.bounding_box().center() + Point::new(0, 15),
 				character_style,
 				Alignment::Center,
@@ -235,7 +244,7 @@ mod app {
 	// 	}
 	// }
 
-	#[task(binds = EXTI0, local = [button], shared = [delay, rtc], priority = 1)]
+	#[task(binds = EXTI0, local = [button], shared = [rtc, tacho], priority = 1)]
 	fn gpio_interrupt_handler(mut ctx: gpio_interrupt_handler::Context) {
 		ctx.local.button.0.clear_interrupt_pending_bit();
 
@@ -248,6 +257,7 @@ mod app {
 		}
 		ctx.local.button.1 = now;
 
+		ctx.shared.tacho.lock(|tacho|tacho.insert(now.assume_utc().unix_timestamp()));
 	}
 }
 
