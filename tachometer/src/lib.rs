@@ -1,7 +1,10 @@
 #![cfg_attr(feature = "no-std", no_std)]
 
+pub mod units;
+
 use core::f32::consts::PI;
 use ringbuffer::{ConstGenericRingBuffer as Ringbuffer, RingBuffer};
+use crate::units::length::Length;
 
 // A wrapping ring-buffer that tracks rotations of a wheel over time
 // Every rotation should add one timestamp
@@ -9,6 +12,7 @@ pub struct Tachometer<const CAPACITY: usize> {
 	// Leaking internal struct due to IntoIter impl
 	pub buf: Ringbuffer<i128, CAPACITY>,
 	pub tire: TireDimensions,
+	pub total_revolutions: usize,
 }
 
 impl<const CAPACITY: usize> Tachometer<CAPACITY> {
@@ -16,6 +20,7 @@ impl<const CAPACITY: usize> Tachometer<CAPACITY> {
 		Self {
 			buf: Ringbuffer::new(),
 			tire,
+			total_revolutions: 0,
 		}
 	}
 
@@ -28,29 +33,35 @@ impl<const CAPACITY: usize> Tachometer<CAPACITY> {
 	}
 
 	// Returns distance covered in the last n milliseconds
-	pub fn last_distance_moved(&self, threshold: i128, now: i128) -> f32 {
+	pub fn last_distance_moved(&self, threshold: i128, now: i128) -> Length {
 		let last = self.last_millis(threshold, now);
-		last.count() as f32 * self.tire.circumference()
+		self.tire.circumference().scale(last.count() as f32)
+	}
+
+	/// Returns distance in centimeters
+	pub fn total_distance_moved(&self) -> Length {
+		self.tire.circumference().scale(self.total_revolutions as f32)
 	}
 
 	pub fn insert(&mut self, timestamp: i128) {
-		self.buf.push(timestamp)
+		self.buf.push(timestamp);
+		self.total_revolutions += 1;
 	}
 }
 
 pub enum TireDimensions {
-	Diameter(f32),
-	Radius(f32),
-	Circumference(f32),
+	Diameter(Length),
+	Radius(Length),
+	Circumference(Length),
 }
 
 impl TireDimensions {
-	pub fn circumference(&self) -> f32 {
-		let diameter_to_circumference = |diam| PI * diam / 2.0;
+	pub fn circumference(&self) -> Length {
+		let diameter_to_circumference = |diam: Length| diam.scale(PI).scale(1.0 / 2.0);
 		match self {
 			TireDimensions::Diameter(diam) => {diameter_to_circumference(*diam)}
 			TireDimensions::Circumference(circum) => { *circum }
-			TireDimensions::Radius(radius) => {diameter_to_circumference(*radius * 2.0)}
+			TireDimensions::Radius(radius) => {diameter_to_circumference(radius.scale(2.0))}
 		}
 	}
 }

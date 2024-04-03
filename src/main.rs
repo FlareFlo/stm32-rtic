@@ -47,6 +47,8 @@ mod app {
 	use time::{Duration, PrimitiveDateTime};
 	use to_arraystring::ToArrayString;
 	use tachometer::{Tachometer, TireDimensions};
+	use tachometer::units::length::Length;
+	use tachometer::units::time::Time;
 
 	use crate::{shared};
 
@@ -168,7 +170,7 @@ mod app {
 				delayval: 500_u32,
 				rtc,
 				delay,
-				tacho: Tachometer::new(TireDimensions::Diameter(70.0)),
+				tacho: Tachometer::new(TireDimensions::Diameter(Length::from_centimeters(70.0))),
 			},
 			// Initialization of task local resources
 			Local {
@@ -213,22 +215,36 @@ mod app {
 			let now = ctx.shared.rtc.lock(|rtc| rtc.get_datetime());
 
 			let latest_distance = ctx.shared.tacho.lock(|tacho|tacho.last_distance_moved(timeframe, now.assume_utc().unix_timestamp_nanos() / 1_000_000));
-			let speed = (latest_distance / (timeframe as f32 / 64.0));
-			println!("Speed: {}", speed);
+			let speed = (latest_distance.to_speed(Time::milliseconds(timeframe as f32)));
+			println!("Speed: {} kmh", speed.as_kilometers_per_hour());
 
 			let mut buf = [0u8; 30];
-			let formatted = format_no_std::show(
+			let formatted_speed = format_no_std::show(
 				&mut buf,
-				format_args!("{speed:.1}kmh")
+				format_args!("{:.1}kmh", speed.as_kilometers_per_hour())
+			).unwrap();
+
+			let mut buf = [0u8; 30];
+			let formatted_distance = format_no_std::show(
+				&mut buf,
+				format_args!("{:.1}meters",ctx.shared.tacho.lock(|tacho|tacho.total_distance_moved().as_meter()))
 			).unwrap();
 
 			display.clear_buffer();
 
 			// Draw speed
 			Text::with_alignment(
-				formatted,
-				display.bounding_box().center() + Point::new(0, 15),
+				formatted_speed,
+				display.bounding_box().center() + Point::new(0, 10),
 				MonoTextStyle::new(&FONT_10X20, BinaryColor::On),
+				Alignment::Center,
+			).draw(display).unwrap();
+
+			/// Draw all-time distance
+			Text::with_alignment(
+				formatted_distance,
+				display.bounding_box().center() + Point::new(0, 21),
+				MonoTextStyle::new(&FONT_7X14, BinaryColor::On),
 				Alignment::Center,
 			).draw(display).unwrap();
 
