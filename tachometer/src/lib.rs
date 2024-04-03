@@ -57,11 +57,11 @@ pub enum TireDimensions {
 
 impl TireDimensions {
 	pub fn circumference(&self) -> Length {
-		let diameter_to_circumference = |diam: Length| diam.scale(PI).scale(1.0 / 2.0);
+		let diameter_to_circumference = |diam: Length| diam.scale(PI).scale(2.0);
 		match self {
-			TireDimensions::Diameter(diam) => {diameter_to_circumference(*diam)}
+			TireDimensions::Diameter(diam) => {diameter_to_circumference(diam.div(2.0))}
 			TireDimensions::Circumference(circum) => { *circum }
-			TireDimensions::Radius(radius) => {diameter_to_circumference(radius.scale(2.0))}
+			TireDimensions::Radius(radius) => {diameter_to_circumference(*radius)}
 		}
 	}
 }

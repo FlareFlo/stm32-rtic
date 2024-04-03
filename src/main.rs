@@ -208,7 +208,7 @@ mod app {
 		let display = ctx.local.display;
 		let rtc = &mut ctx.shared.rtc;
 
-		let timeframe = 50_000; // Milliseconds
+		let timeframe = 3_000; // Milliseconds
 
 		let mut fc: u32 = 0;
 		loop {
@@ -257,7 +257,7 @@ mod app {
 			).draw(display).unwrap();
 
 			display.flush().unwrap();
-			Systick::delay(33_u32.millis()).await;
+			Systick::delay(16_u32.millis()).await;
 			fc += 1;
 		}
 	}
