@@ -4,9 +4,6 @@
 #![allow(unused)] // TODO: Remove when done prototyping (never :)
 #![feature(async_closure)]
 
-pub mod led_state;
-pub mod pzb;
-pub mod pzb_state;
 
 use panic_probe as _;
 use rtic_monotonics::systick::ExtU32;
@@ -61,26 +58,15 @@ mod app {
 	};
 	use time::{Duration, PrimitiveDateTime};
 
-	use crate::{led_state::PzbLedState, pzb::PzbCategory, pzb_state::PzbState, shared};
+	use crate::{shared};
 
 	// Resources shared between tasks
 	#[shared]
 	struct Shared {
 		delayval: u32,
 		rtc:      Rtc,
-		leds:     Leds,
 		delay:    timer::DelayMs<TIM1>,
 
-		pzb_state: PzbState,
-	}
-
-	pub struct Leds {
-		pub b55:     crate::pins::Blue55,
-		pub b70:     crate::pins::Blue70,
-		pub b85:     crate::pins::Blue85,
-		pub hz1000:  crate::pins::Hz1000,
-		pub hz500:   crate::pins::Hz500,
-		pub command: crate::pins::Command,
 	}
 
 	// Local resources to specific tasks (cannot be shared)
@@ -189,15 +175,6 @@ mod app {
 			Shared {
 				delayval: 500_u32,
 				rtc,
-				leds: Leds {
-					b55,
-					b70,
-					b85,
-					hz1000,
-					hz500,
-					command,
-				},
-				pzb_state: PzbState::Free,
 				delay,
 			},
 			// Initialization of task local resources
@@ -217,40 +194,6 @@ mod app {
 	// 	}
 	// }
 
-	// Background task, runs whenever no other tasks are running
-	#[task(shared = [delayval, leds, pzb_state, delay])]
-	async fn pzb_lights(mut ctx: pzb_lights::Context) {
-		let mut delayval = ctx.shared.delayval;
-		loop {
-			// Set non-alternating PZB state
-			shared!(
-				ctx,
-				|leds, pzb_state| {
-					let pzb_led = pzb_state.enabled(PzbCategory::O);
-					pzb_led.set_leds(leds, true);
-				},
-				leds,
-				pzb_state
-			);
-
-			// Sleep for full PZB cycle
-			Systick::delay(delayval.lock(|val| *val).millis()).await;
-
-			// Set alternating PZB state
-			shared!(
-				ctx,
-				|leds, pzb_state| {
-					let pzb_led = pzb_state.enabled(PzbCategory::O);
-					pzb_led.set_leds(leds, false);
-				},
-				leds,
-				pzb_state
-			);
-
-			// Sleep for full PZB cycle
-			Systick::delay(delayval.lock(|val| *val).millis()).await;
-		}
-	}
 
 	#[task(local = [led])]
 	async fn blinky(mut ctx: blinky::Context) {
@@ -304,7 +247,7 @@ mod app {
 	// 	}
 	// }
 
-	#[task(binds = EXTI0, local = [button], shared = [pzb_state, delay, rtc], priority = 1)]
+	#[task(binds = EXTI0, local = [button], shared = [delay, rtc], priority = 1)]
 	fn gpio_interrupt_handler(mut ctx: gpio_interrupt_handler::Context) {
 		ctx.local.button.0.clear_interrupt_pending_bit();
 
@@ -317,9 +260,6 @@ mod app {
 		}
 		ctx.local.button.1 = now;
 
-		ctx.shared.pzb_state.lock(|state| {
-			*state = state.next();
-		});
 	}
 }
 
