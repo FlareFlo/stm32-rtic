@@ -170,7 +170,7 @@ mod app {
 				delayval: 500_u32,
 				rtc,
 				delay,
-				tacho: Tachometer::new(TireDimensions::Diameter(Length::from_centimeters(70.0))),
+				tacho: Tachometer::new(TireDimensions::Diameter(Length::from_centimeters(70.0)), 1),
 			},
 			// Initialization of task local resources
 			Local {

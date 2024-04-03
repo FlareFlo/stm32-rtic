@@ -13,14 +13,17 @@ pub struct Tachometer<const CAPACITY: usize> {
 	pub buf: Ringbuffer<i128, CAPACITY>,
 	pub tire: TireDimensions,
 	pub total_revolutions: usize,
+	// Amount of equally spaced points on wheel that are measured
+	pub pointers_per_wheel: usize,
 }
 
 impl<const CAPACITY: usize> Tachometer<CAPACITY> {
-	pub const fn new(tire: TireDimensions) -> Self {
+	pub const fn new(tire: TireDimensions, wheel_measurements: usize) -> Self {
 		Self {
 			buf: Ringbuffer::new(),
 			tire,
 			total_revolutions: 0,
+			pointers_per_wheel: wheel_measurements,
 		}
 	}
 
@@ -35,12 +38,12 @@ impl<const CAPACITY: usize> Tachometer<CAPACITY> {
 	// Returns distance covered in the last n milliseconds
 	pub fn last_distance_moved(&self, threshold: i128, now: i128) -> Length {
 		let last = self.last_millis(threshold, now);
-		self.tire.circumference().scale(last.count() as f32)
+		self.tire.circumference().scale(last.count() as f32).div(self.pointers_per_wheel as f32)
 	}
 
 	/// Returns distance in centimeters
 	pub fn total_distance_moved(&self) -> Length {
-		self.tire.circumference().scale(self.total_revolutions as f32)
+		self.tire.circumference().scale(self.total_revolutions as f32).div(self.pointers_per_wheel as f32)
 	}
 
 	pub fn insert(&mut self, timestamp: i128) {
