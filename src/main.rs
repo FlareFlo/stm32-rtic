@@ -4,7 +4,6 @@
 #![allow(unused)] // TODO: Remove when done prototyping (never :)
 #![feature(async_closure)]
 
-
 use panic_probe as _;
 use rtic_monotonics::systick::ExtU32;
 
@@ -15,26 +14,24 @@ mod app {
 	use cortex_m::asm::delay;
 	use defmt::{error, export::panic, info, println, warn};
 	use defmt_rtt as _;
-	use embedded_graphics::image::Image;
-
-	use embedded_graphics::prelude::*;
-	use embedded_graphics::mono_font::ascii::*;
-	use embedded_graphics::mono_font::*;
-	use embedded_graphics::pixelcolor::BinaryColor;
-	use embedded_graphics::primitives::Rectangle;
-	use embedded_graphics::text::Text;
-	use embedded_graphics::text::Alignment;
-
+	use embedded_graphics::{
+		image::Image,
+		mono_font::{ascii::*, *},
+		pixelcolor::BinaryColor,
+		prelude::*,
+		primitives::Rectangle,
+		text::{Alignment, Text},
+	};
 	use rtic::{mutex_prelude::TupleExt02, Mutex};
 	use rtic_monotonics::systick::Systick;
-
-	use ssd1306::mode::BufferedGraphicsMode;
-	use ssd1306::{I2CDisplayInterface, Ssd1306};
-	use ssd1306::prelude::I2CInterface;
-	use ssd1306::rotation::DisplayRotation;
-	use ssd1306::size::DisplaySize128x64;
-	use ssd1306::mode::DisplayConfig;
-
+	use ssd1306::{
+		mode::{BufferedGraphicsMode, DisplayConfig},
+		prelude::I2CInterface,
+		rotation::DisplayRotation,
+		size::DisplaySize128x64,
+		I2CDisplayInterface,
+		Ssd1306,
+	};
 	use stm32f4xx_hal::{
 		gpio::{self, Edge, Input, Output, PushPull},
 		i2c::I2c,
@@ -44,13 +41,15 @@ mod app {
 		timer,
 		timer::Delay,
 	};
+	use tachometer::{
+		units::{length::Length, time::Time},
+		Tachometer,
+		TireDimensions,
+	};
 	use time::{Duration, PrimitiveDateTime};
 	use to_arraystring::ToArrayString;
-	use tachometer::{Tachometer, TireDimensions};
-	use tachometer::units::length::Length;
-	use tachometer::units::time::Time;
 
-	use crate::{shared};
+	use crate::shared;
 
 	// Resources shared between tasks
 	#[shared]
@@ -59,15 +58,19 @@ mod app {
 		rtc:      Rtc,
 		delay:    timer::DelayMs<TIM1>,
 		// 75 samples should suffice for around 10 seconds of history at 60 km/h
-		tacho: Tachometer<75>,
+		tacho:    Tachometer<75>,
 	}
 
 	// Local resources to specific tasks (cannot be shared)
 	#[local]
 	struct Local {
-		button: (gpio::PA0<Input>, PrimitiveDateTime),
-		led:    gpio::PC13<Output<PushPull>>,
-		display:  Ssd1306<I2CInterface<I2c<I2C1>>, DisplaySize128x64, BufferedGraphicsMode<DisplaySize128x64>>,
+		button:  (gpio::PA0<Input>, PrimitiveDateTime),
+		led:     gpio::PC13<Output<PushPull>>,
+		display: Ssd1306<
+			I2CInterface<I2c<I2C1>>,
+			DisplaySize128x64,
+			BufferedGraphicsMode<DisplaySize128x64>,
+		>,
 	}
 
 	#[init]
@@ -136,17 +139,14 @@ mod app {
 		let i2c1 = I2c::new(dp.I2C1, (gpiob.pb6, gpiob.pb7), 600_u32.kHz(), &clocks);
 		let interface = I2CDisplayInterface::new(i2c1);
 
-		let mut display = Ssd1306::new(
-			interface,
-			DisplaySize128x64,
-			DisplayRotation::Rotate0,
-		).into_buffered_graphics_mode();
+		let mut display = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
+			.into_buffered_graphics_mode();
 		display.init().unwrap();
 
 		#[cfg(feature = "startup-logo")]
 		{
-			use tinytga::Tga;
 			use embedded_graphics::pixelcolor::BinaryColor;
+			use tinytga::Tga;
 
 			let data = include_bytes!("../images/feris/final.tga");
 			let tga: Tga<BinaryColor> = Tga::from_slice(data).unwrap();
@@ -157,9 +157,7 @@ mod app {
 
 		display.flush().unwrap();
 
-
 		let now = rtc.get_datetime();
-
 
 		// pzb_lights::spawn().unwrap();
 		display::spawn().unwrap();
@@ -170,7 +168,11 @@ mod app {
 				delayval: 500_u32,
 				rtc,
 				delay,
-				tacho: Tachometer::new(TireDimensions::Diameter(Length::from_centimeters(70.0)), 1),
+				tacho: Tachometer::new(
+					TireDimensions::Diameter(Length::from_centimeters(70.0)),
+					1,
+					46.0 / 16.0,
+				),
 			},
 			// Initialization of task local resources
 			Local {
@@ -189,12 +191,19 @@ mod app {
 	// 	}
 	// }
 
-
 	#[task(local = [led], shared = [tacho, rtc])]
 	async fn blinky(mut ctx: blinky::Context) {
 		let led = ctx.local.led;
 		loop {
-			ctx.shared.tacho.lock(|tacho|tacho.insert(ctx.shared.rtc.lock(|rtc| rtc.get_datetime()).assume_utc().unix_timestamp_nanos() / 1_000_000));
+			ctx.shared.tacho.lock(|tacho| {
+				tacho.insert(
+					ctx.shared
+						.rtc
+						.lock(|rtc| rtc.get_datetime())
+						.assume_utc()
+						.unix_timestamp_nanos() / 1_000_000,
+				)
+			});
 			let delay = 500_u32.millis();
 			led.set_high();
 			Systick::delay(delay).await;
@@ -214,21 +223,39 @@ mod app {
 		loop {
 			let now = ctx.shared.rtc.lock(|rtc| rtc.get_datetime());
 
-			let latest_distance = ctx.shared.tacho.lock(|tacho|tacho.last_distance_moved(timeframe, now.assume_utc().unix_timestamp_nanos() / 1_000_000));
-			let speed = (latest_distance.to_speed(Time::milliseconds(timeframe as f32)));
+			let sample = ctx.shared.tacho.lock(|tacho| {
+				tacho.last_samples(
+					timeframe,
+					now.assume_utc().unix_timestamp_nanos() / 1_000_000,
+				)
+			});
+			let speed = (sample
+				.distance
+				.to_speed(Time::milliseconds(timeframe as f32)));
 			println!("Speed: {} kmh", speed.as_kilometers_per_hour());
 
 			let mut buf = [0u8; 30];
 			let formatted_speed = format_no_std::show(
 				&mut buf,
-				format_args!("{:.1}kmh", speed.as_kilometers_per_hour())
-			).unwrap();
+				format_args!("{:.1}kmh", speed.as_kilometers_per_hour()),
+			)
+			.unwrap();
+
+			let mut buf = [0u8; 30];
+			let formatted_cadence =
+				format_no_std::show(&mut buf, format_args!("{:.1}rpm", sample.cadence)).unwrap();
 
 			let mut buf = [0u8; 30];
 			let formatted_distance = format_no_std::show(
 				&mut buf,
-				format_args!("{:.1}meters",ctx.shared.tacho.lock(|tacho|tacho.total_distance_moved().as_meter()))
-			).unwrap();
+				format_args!(
+					"{:.1}meters",
+					ctx.shared
+						.tacho
+						.lock(|tacho| tacho.total_distance_moved().as_meter())
+				),
+			)
+			.unwrap();
 
 			display.clear_buffer();
 
@@ -238,7 +265,9 @@ mod app {
 				display.bounding_box().center() + Point::new(0, 10),
 				MonoTextStyle::new(&FONT_10X20, BinaryColor::On),
 				Alignment::Center,
-			).draw(display).unwrap();
+			)
+			.draw(display)
+			.unwrap();
 
 			/// Draw all-time distance
 			Text::with_alignment(
@@ -246,7 +275,19 @@ mod app {
 				display.bounding_box().center() + Point::new(0, 21),
 				MonoTextStyle::new(&FONT_7X14, BinaryColor::On),
 				Alignment::Center,
-			).draw(display).unwrap();
+			)
+			.draw(display)
+			.unwrap();
+
+			/// Draw cadence
+			Text::with_alignment(
+				formatted_cadence,
+				display.bounding_box().center() + Point::new(0, 28),
+				MonoTextStyle::new(&FONT_6X9, BinaryColor::On),
+				Alignment::Center,
+			)
+			.draw(display)
+			.unwrap();
 
 			// Draw frame counter
 			Text::with_alignment(
@@ -254,7 +295,9 @@ mod app {
 				Point::new(0, 6),
 				MonoTextStyle::new(&FONT_6X9, BinaryColor::On),
 				Alignment::Left,
-			).draw(display).unwrap();
+			)
+			.draw(display)
+			.unwrap();
 
 			display.flush().unwrap();
 			Systick::delay(16_u32.millis()).await;
@@ -294,7 +337,9 @@ mod app {
 		}
 		ctx.local.button.1 = now;
 
-		ctx.shared.tacho.lock(|tacho|tacho.insert(now.assume_utc().unix_timestamp_nanos() / 1_000_000));
+		ctx.shared
+			.tacho
+			.lock(|tacho| tacho.insert(now.assume_utc().unix_timestamp_nanos() / 1_000_000));
 	}
 }
 

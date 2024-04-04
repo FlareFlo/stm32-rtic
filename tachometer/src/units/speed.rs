@@ -8,9 +8,7 @@ pub struct Speed {
 
 impl Speed {
 	pub fn from_meter_per_second(amount: f32) -> Self {
-		Self {
-			amount,
-		}
+		Self { amount }
 	}
 
 	pub fn as_meter_per_second(&self) -> f32 {

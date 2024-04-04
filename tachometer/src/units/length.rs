@@ -1,5 +1,4 @@
-use crate::units::speed::Speed;
-use crate::units::time::Time;
+use crate::units::{speed::Speed, time::Time};
 
 #[derive(Copy, Clone)]
 pub struct Length {
