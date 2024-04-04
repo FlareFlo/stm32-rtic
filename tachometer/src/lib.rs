@@ -56,7 +56,7 @@ impl<const CAPACITY: usize> Tachometer<CAPACITY> {
 			.div(self.pointers_per_wheel as f32);
 
 		let threshold_seconds = threshold as f32 / 1000.0;
-		let revolutions_per_second = (last_count as f32 * self.gear_ratio) / (threshold_seconds * threshold_seconds);
+		let revolutions_per_second = (last_count as f32 / self.gear_ratio) / (threshold_seconds);
 
 		Sample { distance, cadence: revolutions_per_second * 60.0 }
 	}
