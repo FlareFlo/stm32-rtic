@@ -23,6 +23,7 @@ mod app {
 		text::{Alignment, Text},
 	};
 	use profont::{PROFONT_18_POINT, PROFONT_24_POINT, PROFONT_7_POINT};
+	use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
 	use rtic::{mutex_prelude::TupleExt02, Mutex};
 	use rtic_monotonics::systick::Systick;
 	use ssd1306::{
@@ -42,6 +43,10 @@ mod app {
 		timer,
 		timer::Delay,
 	};
+	use stm32f4xx_hal::adc::Adc;
+	use stm32f4xx_hal::adc::config::{AdcConfig, SampleTime};
+	use stm32f4xx_hal::gpio::Analog;
+	use stm32f4xx_hal::pac::ADC1;
 	use tachometer::{
 		units::{length::Length, time::Time},
 		Tachometer,
@@ -72,11 +77,20 @@ mod app {
 			DisplaySize128x64,
 			BufferedGraphicsMode<DisplaySize128x64>,
 		>,
+
+		sensor_digital:  (gpio::PA1<Input>, PrimitiveDateTime),
+		sensor_analogue: gpio::PB1<Analog>,
+
+		adc1: Adc<ADC1>,
+
+		rolling_speed_average: ConstGenericRingBuffer<f32, 60>,
 	}
 
 	#[init]
 	fn init(ctx: init::Context) -> (Shared, Local) {
 		let mut dp = ctx.device;
+
+		let mut adc1 = Adc::adc1(dp.ADC1, true, AdcConfig::default());
 
 		// Configure and obtain handle for delay abstraction
 		// 1) Promote RCC structure to HAL to be able to configure clocks
@@ -120,7 +134,10 @@ mod app {
 		// 2) Configure Pin and Obtain Handle
 		let mut button = gpioa.pa0.into_pull_up_input();
 
-		// Configure Button Pin for Interrupts
+		let mut sensor_digital = gpioa.pa1.into_pull_down_input();
+		let sensor_analogue = gpiob.pb1.into_analog();
+
+		// Configure Pins for Interrupts
 		// 1) Promote SYSCFG structure to HAL to be able to configure interrupts
 		let mut syscfg = dp.SYSCFG.constrain();
 		// 2) Make button an interrupt source
@@ -129,6 +146,11 @@ mod app {
 		button.trigger_on_edge(&mut dp.EXTI, Edge::Rising);
 		// 4) Enable gpio interrupt for button
 		button.enable_interrupt(&mut dp.EXTI);
+
+		sensor_digital.make_interrupt_source(&mut syscfg);
+		sensor_digital.trigger_on_edge(&mut dp.EXTI, Edge::Falling);
+		sensor_digital.enable_interrupt(&mut dp.EXTI);
+
 
 		let b55 = gpiob.pb12.into_push_pull_output();
 		let b70 = gpiob.pb13.into_push_pull_output();
@@ -180,6 +202,10 @@ mod app {
 				button: (button, now),
 				led,
 				display,
+				sensor_digital: (sensor_digital, now),
+				sensor_analogue,
+				adc1,
+				rolling_speed_average: Default::default(),
 			},
 		)
 	}
@@ -196,15 +222,15 @@ mod app {
 	async fn blinky(mut ctx: blinky::Context) {
 		let led = ctx.local.led;
 		loop {
-			ctx.shared.tacho.lock(|tacho| {
-				tacho.insert(
-					ctx.shared
-						.rtc
-						.lock(|rtc| rtc.get_datetime())
-						.assume_utc()
-						.unix_timestamp_nanos() / 1_000_000,
-				)
-			});
+			// ctx.shared.tacho.lock(|tacho| {
+			// 	tacho.insert(
+			// 		ctx.shared
+			// 			.rtc
+			// 			.lock(|rtc| rtc.get_datetime())
+			// 			.assume_utc()
+			// 			.unix_timestamp_nanos() / 1_000_000,
+			// 	)
+			// });
 			let delay = 500_u32.millis();
 			led.set_high();
 			Systick::delay(delay).await;
@@ -213,10 +239,11 @@ mod app {
 		}
 	}
 
-	#[task(local = [display], shared = [rtc, tacho])]
+	#[task(local = [display, rolling_speed_average], shared = [rtc, tacho])]
 	async fn display(mut ctx: display::Context) {
 		let display = ctx.local.display;
 		let rtc = &mut ctx.shared.rtc;
+		let rolling_speed_average = ctx.local.rolling_speed_average;
 
 		let timeframe = 3_000; // Milliseconds
 
@@ -234,10 +261,15 @@ mod app {
 				.distance
 				.to_speed(Time::milliseconds(timeframe as f32)));
 
+			rolling_speed_average.push(speed.as_kilometers_per_hour());
+
+			// Take average from last second of speeds
+			let avg_speed = rolling_speed_average.iter().sum::<f32>() / rolling_speed_average.len() as f32;
+
 			let mut buf = [0u8; 30];
 			let formatted_speed = format_no_std::show(
 				&mut buf,
-				format_args!("{:.1}kmh", speed.as_kilometers_per_hour()),
+				format_args!("{:.1}kmh", avg_speed),
 			)
 			.unwrap();
 
@@ -323,18 +355,37 @@ mod app {
 	// 	}
 	// }
 
-	#[task(binds = EXTI0, local = [button], shared = [rtc, tacho], priority = 1)]
-	fn gpio_interrupt_handler(mut ctx: gpio_interrupt_handler::Context) {
-		ctx.local.button.0.clear_interrupt_pending_bit();
+	#[task(binds = EXTI0, local = [button, sensor_analogue, adc1], shared = [rtc, tacho], priority = 1)]
+	fn exti0_interrupt(mut ctx: exti0_interrupt::Context) {
+		let button = ctx.local.button;
+		let asensor = ctx.local.sensor_analogue;
+		let adc = ctx.local.adc1;
+
+		button.0.clear_interrupt_pending_bit();
 
 		let now = ctx.shared.rtc.lock(|rtc| rtc.get_datetime());
 
-		// If this case is true, it means the button was "pressed" within the same millisecond
-		// therefore we will reject its input and return early
-		if now - ctx.local.button.1 <= Duration::milliseconds(100) {
+		if now - button.1 <= Duration::milliseconds(100) {
 			return;
 		}
-		ctx.local.button.1 = now;
+		button.1 = now;
+
+		ctx.shared
+			.tacho
+			.lock(|tacho| tacho.insert(now.assume_utc().unix_timestamp_nanos() / 1_000_000));
+	}
+
+	#[task(binds = EXTI1, local = [sensor_digital], shared = [rtc, tacho], priority = 1)]
+	fn exti1_interrupt(mut ctx: exti1_interrupt::Context) {
+		let dsensor = ctx.local.sensor_digital;
+		dsensor.0.clear_interrupt_pending_bit();
+
+		let now = ctx.shared.rtc.lock(|rtc| rtc.get_datetime());
+
+		if now - dsensor.1 <= Duration::milliseconds(100) {
+			return;
+		}
+		dsensor.1 = now;
 
 		ctx.shared
 			.tacho
