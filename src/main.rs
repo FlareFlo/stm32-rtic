@@ -22,6 +22,7 @@ mod app {
 		primitives::Rectangle,
 		text::{Alignment, Text},
 	};
+	use profont::{PROFONT_18_POINT, PROFONT_24_POINT, PROFONT_7_POINT};
 	use rtic::{mutex_prelude::TupleExt02, Mutex};
 	use rtic_monotonics::systick::Systick;
 	use ssd1306::{
@@ -232,7 +233,6 @@ mod app {
 			let speed = (sample
 				.distance
 				.to_speed(Time::milliseconds(timeframe as f32)));
-			println!("Speed: {} kmh", speed.as_kilometers_per_hour());
 
 			let mut buf = [0u8; 30];
 			let formatted_speed = format_no_std::show(
@@ -249,7 +249,7 @@ mod app {
 			let formatted_distance = format_no_std::show(
 				&mut buf,
 				format_args!(
-					"{:.1}meters",
+					"{:.1}m",
 					ctx.shared
 						.tacho
 						.lock(|tacho| tacho.total_distance_moved().as_meter())
@@ -257,13 +257,11 @@ mod app {
 			)
 			.unwrap();
 
-			display.clear_buffer();
-
 			// Draw speed
 			Text::with_alignment(
 				formatted_speed,
 				display.bounding_box().center() + Point::new(0, 10),
-				MonoTextStyle::new(&FONT_10X20, BinaryColor::On),
+				MonoTextStyle::new(&PROFONT_24_POINT, BinaryColor::On),
 				Alignment::Center,
 			)
 			.draw(display)
@@ -300,6 +298,7 @@ mod app {
 			.unwrap();
 
 			display.flush().unwrap();
+			display.clear_buffer();
 			Systick::delay(16_u32.millis()).await;
 			fc += 1;
 		}

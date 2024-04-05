@@ -58,7 +58,10 @@ impl<const CAPACITY: usize> Tachometer<CAPACITY> {
 		let threshold_seconds = threshold as f32 / 1000.0;
 		let revolutions_per_second = (last_count as f32 / self.gear_ratio) / (threshold_seconds);
 
-		Sample { distance, cadence: revolutions_per_second * 60.0 }
+		Sample {
+			distance,
+			cadence: revolutions_per_second * 60.0,
+		}
 	}
 
 	/// Returns distance in centimeters
