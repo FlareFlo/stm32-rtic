@@ -307,6 +307,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "epd"
+version = "0.0.2"
+source = "git+https://github.com/embedded-drivers/epd.git#fdfb30e6a14a0000885f5747d7b90a86449d3635"
+dependencies = [
+ "defmt",
+ "embedded-graphics",
+ "embedded-hal 0.2.7",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -731,6 +741,7 @@ dependencies = [
  "defmt-rtt",
  "embedded-graphics",
  "embedded-hal 1.0.0",
+ "epd",
  "format_no_std",
  "panic-probe",
  "profont",

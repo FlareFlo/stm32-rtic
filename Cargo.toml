@@ -29,6 +29,7 @@ tachometer = { path = "tachometer", features = ["no-std"]}
 format_no_std = "1.0.2"
 to-arraystring = "0.1.1"
 profont = "0.7.0"
+epd = { git = "https://github.com/embedded-drivers/epd.git"}
 
 [dependencies.stm32f4xx-hal]
 version = "0.20.0"

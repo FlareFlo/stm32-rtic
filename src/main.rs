@@ -3,6 +3,7 @@
 #![no_std]
 #![allow(unused)] // TODO: Remove when done prototyping (never :)
 #![feature(async_closure)]
+#![feature(generic_const_exprs)]
 
 use panic_probe as _;
 use rtic_monotonics::systick::ExtU32;
@@ -12,26 +13,31 @@ mod app {
 	use core::ops::{Deref, Sub};
 
 	use cortex_m::asm::delay;
+	use cortex_m::interrupt::disable;
 	use defmt::{error, export::panic, info, println, warn};
+	use defmt::export::display;
 	use defmt_rtt as _;
 	use embedded_graphics::{
 		image::Image,
-		mono_font::{ascii::*, *},
+		mono_font::{*, ascii::*},
 		pixelcolor::BinaryColor,
 		prelude::*,
 		primitives::Rectangle,
 		text::{Alignment, Text},
 	};
+	use embedded_hal::spi::{Mode, Phase, Polarity};
+	use epd::display::DisplaySize128x296;
+	use epd::{EPDInterface, TriColor, TriColorEPD};
 	use profont::{PROFONT_18_POINT, PROFONT_24_POINT, PROFONT_7_POINT};
 	use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
-	use rtic::{mutex_prelude::TupleExt02, Mutex};
+	use rtic::{Mutex, mutex_prelude::TupleExt02};
 	use rtic_monotonics::systick::Systick;
 	use ssd1306::{
+		I2CDisplayInterface,
 		mode::{BufferedGraphicsMode, DisplayConfig},
 		prelude::I2CInterface,
 		rotation::DisplayRotation,
 		size::DisplaySize128x64,
-		I2CDisplayInterface,
 		Ssd1306,
 	};
 	use stm32f4xx_hal::{
@@ -45,15 +51,18 @@ mod app {
 	};
 	use stm32f4xx_hal::adc::Adc;
 	use stm32f4xx_hal::adc::config::{AdcConfig, SampleTime};
-	use stm32f4xx_hal::gpio::Analog;
+	use stm32f4xx_hal::gpio::{Analog, OpenDrain, Speed};
 	use stm32f4xx_hal::pac::ADC1;
-	use tachometer::{
-		units::{length::Length, time::Time},
-		Tachometer,
-		TireDimensions,
-	};
+	use stm32f4xx_hal::pac::SPI1;
+	use stm32f4xx_hal::spi::{NoMiso, Spi, Spi1};
 	use time::{Duration, PrimitiveDateTime};
 	use to_arraystring::ToArrayString;
+
+	use tachometer::{
+		Tachometer,
+		TireDimensions,
+		units::{length::Length, time::Time},
+	};
 
 	use crate::shared;
 
@@ -61,30 +70,27 @@ mod app {
 	#[shared]
 	struct Shared {
 		delayval: u32,
-		rtc:      Rtc,
-		delay:    timer::DelayMs<TIM1>,
+		rtc: Rtc,
+		delay: timer::DelayMs<TIM1>,
 		// 75 samples should suffice for around 10 seconds of history at 60 km/h
-		tacho:    Tachometer<75>,
+		tacho: Tachometer<75>,
 	}
 
 	// Local resources to specific tasks (cannot be shared)
 	#[local]
 	struct Local {
-		button:  (gpio::PA0<Input>, PrimitiveDateTime),
-		led:     gpio::PC13<Output<PushPull>>,
-		display: Ssd1306<
-			I2CInterface<I2c<I2C1>>,
-			DisplaySize128x64,
-			BufferedGraphicsMode<DisplaySize128x64>,
-		>,
+		button: (gpio::PA0<Input>, PrimitiveDateTime),
+		led: gpio::PC13<Output<PushPull>>,
+		display: DisplayType,
 
-		sensor_digital:  (gpio::PA1<Input>, PrimitiveDateTime),
-		sensor_analogue: gpio::PB1<Analog>,
+		sensor_digital: (gpio::PB1<Input>, PrimitiveDateTime),
 
 		adc1: Adc<ADC1>,
 
 		rolling_speed_average: ConstGenericRingBuffer<f32, 60>,
 	}
+
+	type DisplayType = TriColorEPD<EPDInterface<Spi<SPI1>, gpio::Pin<'A', 4, Output>, gpio::Pin<'A', 2, Output>, gpio::Pin<'A', 1, Output>, gpio::Pin<'A', 3>>, DisplaySize128x296, epd::drivers::SSD1680>;
 
 	#[init]
 	fn init(ctx: init::Context) -> (Shared, Local) {
@@ -115,7 +121,8 @@ mod app {
 		let _ = rtc.set_seconds(00);
 
 		// 3) Create delay handle
-		let mut delay = dp.TIM1.delay_ms(&clocks);
+		let mut delay1 = dp.TIM1.delay_ms(&clocks);
+		let mut delay2 = dp.TIM2.delay_ms(&clocks);
 
 		let gpiob = dp.GPIOB.split();
 
@@ -134,8 +141,7 @@ mod app {
 		// 2) Configure Pin and Obtain Handle
 		let mut button = gpioa.pa0.into_pull_up_input();
 
-		let mut sensor_digital = gpioa.pa1.into_pull_down_input();
-		let sensor_analogue = gpiob.pb1.into_analog();
+		let mut sensor_digital = gpiob.pb1.into_pull_down_input();
 
 		// Configure Pins for Interrupts
 		// 1) Promote SYSCFG structure to HAL to be able to configure interrupts
@@ -151,46 +157,73 @@ mod app {
 		sensor_digital.trigger_on_edge(&mut dp.EXTI, Edge::Falling);
 		sensor_digital.enable_interrupt(&mut dp.EXTI);
 
-
-		let b55 = gpiob.pb12.into_push_pull_output();
-		let b70 = gpiob.pb13.into_push_pull_output();
-		let b85 = gpiob.pb14.into_push_pull_output();
-		let hz1000 = gpiob.pb15.into_push_pull_output();
-		let hz500 = gpioa.pa8.into_push_pull_output();
-		let command = gpioa.pa9.into_push_pull_output();
+		let scl = gpioa.pa5.into_alternate().speed(Speed::VeryHigh);
+		let mosi = gpioa.pa7.into_alternate().speed(Speed::VeryHigh);
+		let cs = gpioa.pa4.into_push_pull_output();
+		let busy = gpioa.pa3.into_input();
+		let dc = gpioa.pa2.into_push_pull_output();
+		let rst = gpioa.pa1.into_push_pull_output();
 
 		let i2c1 = I2c::new(dp.I2C1, (gpiob.pb6, gpiob.pb7), 600_u32.kHz(), &clocks);
 		let interface = I2CDisplayInterface::new(i2c1);
 
-		let mut display = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
-			.into_buffered_graphics_mode();
-		display.init().unwrap();
+		let mut spi1 = Spi::new(
+			dp.SPI1,
+			(
+				scl, // SCL
+				NoMiso::new(), // MISO - dead
+				mosi, // MOSI
+			),
+			Mode {
+				polarity: Polarity::IdleLow,
+				phase: Phase::CaptureOnFirstTransition,
+			},
+			1.MHz(),
+			&clocks,
+		);
+
+		let mut driver = EPDInterface::new(spi1, cs, dc, rst, busy);
+		let mut display = TriColorEPD::new(driver);
+		display.init(&mut delay1).unwrap();
+		display.set_rotation(270);
+		display.clear(TriColor::White).unwrap();
 
 		#[cfg(feature = "startup-logo")]
 		{
 			use embedded_graphics::pixelcolor::BinaryColor;
 			use tinytga::Tga;
 
-			let data = include_bytes!("../images/feris/final.tga");
+			let data = include_bytes!("../out.tga");
 			let tga: Tga<BinaryColor> = Tga::from_slice(data).unwrap();
-			Image::new(&tga, Point::zero()).draw(&mut display).unwrap();
-			display.flush().unwrap();
-			delay.delay_ms(5000);
+			Image::new(&tga, Point::zero()).draw(&mut display.framebuf1).unwrap();
+			display.display_frame().unwrap();
+			delay1.delay_ms(50000);
 		}
-
-		display.flush().unwrap();
 
 		let now = rtc.get_datetime();
 
+
+		// Text::with_alignment(
+		// 				"SEX",
+		// 				Point::new(50, 60),
+		// 				MonoTextStyle::new(&PROFONT_24_POINT,  TriColor::Black),
+		// 				Alignment::Center,
+		// 			)
+		// 			.draw(&mut display)
+		// 			.unwrap();
+		//
+		// display.fill_solid(&Rectangle::new(Point::zero(), Size::new(20,39)), TriColor::Red);
+		// display.display_frame().unwrap();
+
 		// pzb_lights::spawn().unwrap();
-		display::spawn().unwrap();
+		// display::spawn().unwrap();
 		blinky::spawn().unwrap();
 		(
 			// Initialization of shared resources
 			Shared {
 				delayval: 500_u32,
 				rtc,
-				delay,
+				delay: delay1,
 				tacho: Tachometer::new(
 					TireDimensions::Diameter(Length::from_centimeters(70.0)),
 					1,
@@ -201,9 +234,8 @@ mod app {
 			Local {
 				button: (button, now),
 				led,
-				display,
+				display: display,
 				sensor_digital: (sensor_digital, now),
-				sensor_analogue,
 				adc1,
 				rolling_speed_average: Default::default(),
 			},
@@ -239,102 +271,102 @@ mod app {
 		}
 	}
 
-	#[task(local = [display, rolling_speed_average], shared = [rtc, tacho])]
-	async fn display(mut ctx: display::Context) {
-		let display = ctx.local.display;
-		let rtc = &mut ctx.shared.rtc;
-		let rolling_speed_average = ctx.local.rolling_speed_average;
-
-		let timeframe = 3_000; // Milliseconds
-
-		let mut fc: u32 = 0;
-		loop {
-			let now = ctx.shared.rtc.lock(|rtc| rtc.get_datetime());
-
-			let sample = ctx.shared.tacho.lock(|tacho| {
-				tacho.last_samples(
-					timeframe,
-					now.assume_utc().unix_timestamp_nanos() / 1_000_000,
-				)
-			});
-			let speed = (sample
-				.distance
-				.to_speed(Time::milliseconds(timeframe as f32)));
-
-			rolling_speed_average.push(speed.as_kilometers_per_hour());
-
-			// Take average from last second of speeds
-			let avg_speed = rolling_speed_average.iter().sum::<f32>() / rolling_speed_average.len() as f32;
-
-			let mut buf = [0u8; 30];
-			let formatted_speed = format_no_std::show(
-				&mut buf,
-				format_args!("{:.1}kmh", avg_speed),
-			)
-			.unwrap();
-
-			let mut buf = [0u8; 30];
-			let formatted_cadence =
-				format_no_std::show(&mut buf, format_args!("{:.1}rpm", sample.cadence)).unwrap();
-
-			let mut buf = [0u8; 30];
-			let formatted_distance = format_no_std::show(
-				&mut buf,
-				format_args!(
-					"{:.1}m",
-					ctx.shared
-						.tacho
-						.lock(|tacho| tacho.total_distance_moved().as_meter())
-				),
-			)
-			.unwrap();
-
-			// Draw speed
-			Text::with_alignment(
-				formatted_speed,
-				display.bounding_box().center() + Point::new(0, 10),
-				MonoTextStyle::new(&PROFONT_24_POINT, BinaryColor::On),
-				Alignment::Center,
-			)
-			.draw(display)
-			.unwrap();
-
-			/// Draw all-time distance
-			Text::with_alignment(
-				formatted_distance,
-				display.bounding_box().center() + Point::new(0, 21),
-				MonoTextStyle::new(&FONT_7X14, BinaryColor::On),
-				Alignment::Center,
-			)
-			.draw(display)
-			.unwrap();
-
-			/// Draw cadence
-			Text::with_alignment(
-				formatted_cadence,
-				display.bounding_box().center() + Point::new(0, 28),
-				MonoTextStyle::new(&FONT_6X9, BinaryColor::On),
-				Alignment::Center,
-			)
-			.draw(display)
-			.unwrap();
-
-			// Draw frame counter
-			Text::with_alignment(
-				fc.to_arraystring().as_str(),
-				Point::new(0, 6),
-				MonoTextStyle::new(&FONT_6X9, BinaryColor::On),
-				Alignment::Left,
-			)
-			.draw(display)
-			.unwrap();
-
-			display.flush().unwrap();
-			display.clear_buffer();
-			Systick::delay(16_u32.millis()).await;
-			fc += 1;
-		}
-	}
+	// #[task(local = [display, rolling_speed_average], shared = [rtc, tacho])]
+	// async fn display(mut ctx: display::Context) {
+	// 	let display = ctx.local.display;
+	// 	let rtc = &mut ctx.shared.rtc;
+	// 	let rolling_speed_average = ctx.local.rolling_speed_average;
+	//
+	// 	let timeframe = 3_000; // Milliseconds
+	//
+	// 	let mut fc: u32 = 0;
+	// 	loop {
+	// 		let now = ctx.shared.rtc.lock(|rtc| rtc.get_datetime());
+	//
+	// 		let sample = ctx.shared.tacho.lock(|tacho| {
+	// 			tacho.last_samples(
+	// 				timeframe,
+	// 				now.assume_utc().unix_timestamp_nanos() / 1_000_000,
+	// 			)
+	// 		});
+	// 		let speed = (sample
+	// 			.distance
+	// 			.to_speed(Time::milliseconds(timeframe as f32)));
+	//
+	// 		rolling_speed_average.push(speed.as_kilometers_per_hour());
+	//
+	// 		// Take average from last second of speeds
+	// 		let avg_speed = rolling_speed_average.iter().sum::<f32>() / rolling_speed_average.len() as f32;
+	//
+	// 		let mut buf = [0u8; 30];
+	// 		let formatted_speed = format_no_std::show(
+	// 			&mut buf,
+	// 			format_args!("{:.1}kmh", avg_speed),
+	// 		)
+	// 		.unwrap();
+	//
+	// 		let mut buf = [0u8; 30];
+	// 		let formatted_cadence =
+	// 			format_no_std::show(&mut buf, format_args!("{:.1}rpm", sample.cadence)).unwrap();
+	//
+	// 		let mut buf = [0u8; 30];
+	// 		let formatted_distance = format_no_std::show(
+	// 			&mut buf,
+	// 			format_args!(
+	// 				"{:.1}m",
+	// 				ctx.shared
+	// 					.tacho
+	// 					.lock(|tacho| tacho.total_distance_moved().as_meter())
+	// 			),
+	// 		)
+	// 		.unwrap();
+	//
+	// 		// Draw speed
+	// 		Text::with_alignment(
+	// 			formatted_speed,
+	// 			display.bounding_box().center() + Point::new(0, 10),
+	// 			MonoTextStyle::new(&PROFONT_24_POINT, BinaryColor::On),
+	// 			Alignment::Center,
+	// 		)
+	// 		.draw(display)
+	// 		.unwrap();
+	//
+	// 		/// Draw all-time distance
+	// 		Text::with_alignment(
+	// 			formatted_distance,
+	// 			display.bounding_box().center() + Point::new(0, 21),
+	// 			MonoTextStyle::new(&FONT_7X14, BinaryColor::On),
+	// 			Alignment::Center,
+	// 		)
+	// 		.draw(display)
+	// 		.unwrap();
+	//
+	// 		/// Draw cadence
+	// 		Text::with_alignment(
+	// 			formatted_cadence,
+	// 			display.bounding_box().center() + Point::new(0, 28),
+	// 			MonoTextStyle::new(&FONT_6X9, BinaryColor::On),
+	// 			Alignment::Center,
+	// 		)
+	// 		.draw(display)
+	// 		.unwrap();
+	//
+	// 		// Draw frame counter
+	// 		Text::with_alignment(
+	// 			fc.to_arraystring().as_str(),
+	// 			Point::new(0, 6),
+	// 			MonoTextStyle::new(&FONT_6X9, BinaryColor::On),
+	// 			Alignment::Left,
+	// 		)
+	// 		.draw(display)
+	// 		.unwrap();
+	//
+	// 		display.flush().unwrap();
+	// 		display.clear_buffer();
+	// 		Systick::delay(2000_u32.millis()).await;
+	// 		fc += 1;
+	// 	}
+	// }
 
 	// #[task(local = [display], shared = [rtc])]
 	// async fn display(mut ctx: display::Context) {
@@ -355,10 +387,9 @@ mod app {
 	// 	}
 	// }
 
-	#[task(binds = EXTI0, local = [button, sensor_analogue, adc1], shared = [rtc, tacho], priority = 1)]
+	#[task(binds = EXTI0, local = [button, adc1], shared = [rtc, tacho], priority = 1)]
 	fn exti0_interrupt(mut ctx: exti0_interrupt::Context) {
 		let button = ctx.local.button;
-		let asensor = ctx.local.sensor_analogue;
 		let adc = ctx.local.adc1;
 
 		button.0.clear_interrupt_pending_bit();
