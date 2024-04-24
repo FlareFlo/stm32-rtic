@@ -11,7 +11,6 @@ use rtic_monotonics::systick::ExtU32;
 mod app {
 	use core::ops::{Deref, Sub};
 
-	use cortex_m::asm::delay;
 	use defmt::{error, export::panic, info, println, warn};
 	use defmt_rtt as _;
 	use embedded_graphics::{
@@ -35,18 +34,18 @@ mod app {
 		Ssd1306,
 	};
 	use stm32f4xx_hal::{
-		gpio::{self, Edge, Input, Output, PushPull},
+		adc::{
+			config::{AdcConfig, SampleTime},
+			Adc,
+		},
+		gpio::{self, Analog, Edge, Input, Output, PushPull},
 		i2c::I2c,
-		pac::{I2C1, TIM1, TIM2},
+		pac::{ADC1, I2C1, TIM1, TIM2},
 		prelude::*,
 		rtc::{Event, Rtc},
 		timer,
 		timer::Delay,
 	};
-	use stm32f4xx_hal::adc::Adc;
-	use stm32f4xx_hal::adc::config::{AdcConfig, SampleTime};
-	use stm32f4xx_hal::gpio::Analog;
-	use stm32f4xx_hal::pac::ADC1;
 	use tachometer::{
 		units::{length::Length, time::Time},
 		Tachometer,
@@ -150,7 +149,6 @@ mod app {
 		sensor_digital.make_interrupt_source(&mut syscfg);
 		sensor_digital.trigger_on_edge(&mut dp.EXTI, Edge::Falling);
 		sensor_digital.enable_interrupt(&mut dp.EXTI);
-
 
 		let b55 = gpiob.pb12.into_push_pull_output();
 		let b70 = gpiob.pb13.into_push_pull_output();
@@ -264,14 +262,12 @@ mod app {
 			rolling_speed_average.push(speed.as_kilometers_per_hour());
 
 			// Take average from last second of speeds
-			let avg_speed = rolling_speed_average.iter().sum::<f32>() / rolling_speed_average.len() as f32;
+			let avg_speed =
+				rolling_speed_average.iter().sum::<f32>() / rolling_speed_average.len() as f32;
 
 			let mut buf = [0u8; 30];
-			let formatted_speed = format_no_std::show(
-				&mut buf,
-				format_args!("{:.1}kmh", avg_speed),
-			)
-			.unwrap();
+			let formatted_speed =
+				format_no_std::show(&mut buf, format_args!("{:.1}kmh", avg_speed)).unwrap();
 
 			let mut buf = [0u8; 30];
 			let formatted_cadence =
@@ -358,8 +354,6 @@ mod app {
 	#[task(binds = EXTI0, local = [button, sensor_analogue, adc1], shared = [rtc, tacho], priority = 1)]
 	fn exti0_interrupt(mut ctx: exti0_interrupt::Context) {
 		let button = ctx.local.button;
-		let asensor = ctx.local.sensor_analogue;
-		let adc = ctx.local.adc1;
 
 		button.0.clear_interrupt_pending_bit();
 
