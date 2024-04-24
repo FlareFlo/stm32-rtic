@@ -35,6 +35,7 @@ version = "0.20.0"
 features = ["stm32f411"] # replace the model of your microcontroller here
 
 [profile.dev]
+debug = 2
 opt-level = "z"
 lto = true
 
