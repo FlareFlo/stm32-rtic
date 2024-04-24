@@ -1,5 +1,3 @@
-use crate::units::speed::Speed;
-
 #[derive(Copy, Clone)]
 pub struct Time {
 	// Stored as seconds

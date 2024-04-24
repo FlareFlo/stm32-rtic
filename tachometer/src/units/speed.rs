@@ -1,5 +1,3 @@
-use crate::units::length::Length;
-
 #[derive(Copy, Clone)]
 pub struct Speed {
 	// Stored as meters per second
