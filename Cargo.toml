@@ -34,11 +34,13 @@ profont = "0.7.0"
 version = "0.20.0"
 features = ["stm32f411"] # replace the model of your microcontroller here
 
+[profile.dev]
+opt-level = "z"
+lto = true
+
 [profile.release]
-codegen-units = 4
-debug = 2
-opt-level = 3            # <-
-overflow-checks = false  # <-
+codegen-units = 8
+opt-level = "z"
 lto = true
 
 [features]
